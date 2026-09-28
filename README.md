@@ -11,8 +11,10 @@ An unofficial, async, fully typed Python client for [Librus Synergia](https://sy
 
 > [!TIP]
 > ⭐ **Useful?** A star helps other parents and developers find it.
+>
+> ☕ Want to say thanks another way? You can [buy me a coffee](https://buymeacoffee.com/zanula).
 
-[![Star this repo](https://img.shields.io/github/stars/MichalZaniewicz/librus-synergia?style=for-the-badge&logo=github&label=STAR%20THIS%20REPO&labelColor=555555&color=ffc107)](https://github.com/MichalZaniewicz/librus-synergia)
+[![Star this repo](https://img.shields.io/github/stars/MichalZaniewicz/librus-synergia?style=for-the-badge&logo=github&label=STAR%20THIS%20REPO&labelColor=555555&color=ffc107)](https://github.com/MichalZaniewicz/librus-synergia) [![Buy me a coffee](https://img.shields.io/badge/BUY%20ME%20A%20COFFEE-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/zanula)
 
 This is the engine behind the [Librus Synergia Home Assistant integration](https://github.com/MichalZaniewicz/ha-librus-synergia), extracted so anyone can use it: in scripts, bots, dashboards or their own apps.
 
