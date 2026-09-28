@@ -1,0 +1,234 @@
+"""Tests for the low-level LibrusApiClient against a mocked aiohttp session."""
+
+from __future__ import annotations
+
+import time
+
+import aiohttp
+import pytest
+
+from librus_synergia.client import LibrusApiClient, LibrusSessionData
+from librus_synergia.const import (
+    API_OAUTH_AUTHORIZATION_URL,
+    DATA_BASE_URL,
+    MESSAGES_BASE_URL,
+    SYNERGIA_PORTAL_LOGIN_URL,
+)
+from librus_synergia.exceptions import (
+    LibrusCaptchaRequiredError,
+    LibrusInvalidCredentialsError,
+    LibrusServerMaintenanceError,
+    LibrusSessionExpiredError,
+    LibrusUnexpectedResponseError,
+)
+
+from .helpers import AUTHORIZATION_REDIRECT_URL, MockedSession, mock_successful_login
+
+
+@pytest.mark.asyncio
+async def test_login_success_sets_session_valid() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            client = LibrusApiClient(session, "1234567u")
+            assert client.session_age_seconds is None  # never logged in yet
+            session_data = await client.async_login("correct-password")
+
+    assert client.is_session_valid()
+    assert session_data.logged_in_at > 0
+    # BUG FIX (live feedback - richer diagnostics): session_age_seconds
+    # should now be a small, real, non-negative number just after login.
+    assert client.session_age_seconds is not None
+    assert 0 <= client.session_age_seconds < 5
+    cookie_names = {c["name"] for c in session_data.cookies}
+    assert "oauth_token" in cookie_names
+
+
+@pytest.mark.asyncio
+async def test_login_rejected_credentials_raises() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                SYNERGIA_PORTAL_LOGIN_URL,
+                status=302,
+                headers={"Location": AUTHORIZATION_REDIRECT_URL},
+            )
+            mocked.get(AUTHORIZATION_REDIRECT_URL, status=200, text_data="")
+            mocked.post(API_OAUTH_AUTHORIZATION_URL, status=200, json_data={"status": "error"})
+            client = LibrusApiClient(session, "1234567u")
+            with pytest.raises(LibrusInvalidCredentialsError):
+                await client.async_login("wrong-password")
+
+    assert not client.is_session_valid()
+
+
+@pytest.mark.asyncio
+async def test_login_captcha_marker_raises() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                SYNERGIA_PORTAL_LOGIN_URL,
+                status=302,
+                headers={"Location": AUTHORIZATION_REDIRECT_URL},
+            )
+            mocked.get(AUTHORIZATION_REDIRECT_URL, status=200, text_data="")
+            mocked.post(
+                API_OAUTH_AUTHORIZATION_URL,
+                status=200,
+                json_data={"status": "error", "message": "please solve the recaptcha"},
+            )
+            client = LibrusApiClient(session, "1234567u")
+            with pytest.raises(LibrusCaptchaRequiredError):
+                await client.async_login("whatever")
+
+
+@pytest.mark.asyncio
+async def test_get_grades_after_login() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            client = LibrusApiClient(session, "1234567u")
+            await client.async_login("correct-password")
+
+            mocked.get(
+                f"{DATA_BASE_URL}/Grades",
+                status=200,
+                json_data={"Grades": [{"Id": 1, "Grade": "5", "Category": {"Id": 10}}]},
+            )
+            payload = await client.async_get_grades()
+
+    assert payload["Grades"][0]["Grade"] == "5"
+
+
+@pytest.mark.asyncio
+async def test_data_fetch_session_rejected_raises_session_expired() -> None:
+    """CONFIRMED live (2026-09-05): a data endpoint can reject an
+    already-established session (HTTP 401/403) - e.g. Librus's real session
+    lifetime running shorter than our own conservative elapsed-time
+    estimate. This must raise LibrusSessionExpiredError, NOT
+    LibrusInvalidCredentialsError - the coordinator treats the two very
+    differently (force a silent re-login + retry vs. surface Home
+    Assistant's reauth flow to the user)."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            client = LibrusApiClient(session, "1234567u")
+            await client.async_login("correct-password")
+
+            mocked.get(f"{DATA_BASE_URL}/Grades", status=401, json_data={})
+            with pytest.raises(LibrusSessionExpiredError):
+                await client.async_get_grades()
+
+
+@pytest.mark.asyncio
+async def test_data_fetch_session_rejected_with_non_json_body_still_raises_session_expired() -> (
+    None
+):
+    """BUG FIX (code review): `_async_request_url` used to call
+    `_async_read_json` (JSON-parse the body) BEFORE checking `response.
+    status in (401, 403)`. A dead-session 401/403 can come back with a
+    non-JSON (HTML/plain-text) body - previously that made `_async_read_json`
+    raise LibrusUnexpectedResponseError first, so LibrusSessionExpiredError
+    never fired at all and the coordinator's forced-relogin-and-retry-once
+    recovery (which depends on catching THIS exception type) was silently
+    skipped. The 401/403 check must run first and must not depend on a
+    successfully-parsed payload."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            client = LibrusApiClient(session, "1234567u")
+            await client.async_login("correct-password")
+
+            mocked.get(
+                f"{DATA_BASE_URL}/Grades",
+                status=401,
+                text_data="<html>session expired, please log in again</html>",
+            )
+            with pytest.raises(LibrusSessionExpiredError) as exc_info:
+                await client.async_get_grades()
+
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_maintenance_response_raises() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            client = LibrusApiClient(session, "1234567u")
+            await client.async_login("correct-password")
+
+            mocked.get(f"{DATA_BASE_URL}/Grades", status=503, text_data="")
+            with pytest.raises(LibrusServerMaintenanceError):
+                await client.async_get_grades()
+
+
+@pytest.mark.asyncio
+async def test_non_json_response_raises_unexpected() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            client = LibrusApiClient(session, "1234567u")
+            await client.async_login("correct-password")
+
+            mocked.get(f"{DATA_BASE_URL}/Grades", status=200, text_data="<html>not json</html>")
+            with pytest.raises(LibrusUnexpectedResponseError):
+                await client.async_get_grades()
+
+
+@pytest.mark.asyncio
+async def test_messages_list_bare_array_response_is_normalized() -> None:
+    """BUG FIX (2026-09-06, found live): confirmed a real Wiadomości
+    mailbox's list endpoint ("substitutions"/"alerts") can return a bare
+    JSON array instead of the {"data": [...]} envelope every other
+    endpoint in this client uses - a real request against the live
+    account raised LibrusUnexpectedResponseError("Expected a JSON object,
+    got list"), which (before coordinator.py isolated the two fetches)
+    silently wiped out the otherwise-working inbox unread-count/message
+    data too via a shared asyncio.gather(). _async_read_json must
+    normalize a bare list into {"data": [...]} instead of raising."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            client = LibrusApiClient(session, "1234567u")
+            await client.async_login("correct-password")
+
+            mocked.get(
+                f"{MESSAGES_BASE_URL}/substitutions/messages",
+                status=200,
+                json_data=[{"messageId": "1", "topic": "Zmiana w planie"}],
+            )
+            payload = await client.async_get_messages(mailbox="substitutions", limit=10)
+
+    assert payload == {"data": [{"messageId": "1", "topic": "Zmiana w planie"}]}
+
+
+@pytest.mark.asyncio
+async def test_import_session_restores_validity_without_network() -> None:
+    """A restored session (e.g. after a HA restart) should be considered
+    valid without any request being made, as long as it hasn't aged out."""
+
+    async with aiohttp.ClientSession() as session:
+        client = LibrusApiClient(session, "1234567u")
+        assert not client.is_session_valid()
+        client.import_session(
+            LibrusSessionData(
+                cookies=[
+                    {"name": "oauth_token", "value": "restored", "domain": "synergia.librus.pl"}
+                ],
+                logged_in_at=time.time(),
+            )
+        )
+        assert client.is_session_valid()
+
+
+async def test_async_close_closes_the_underlying_session() -> None:
+    """`async_close` must close whatever session this client was given -
+    the caller (see `custom_components/librus_synergia/__init__.py`) relies
+    on this to release a per-entry session on unload, instead of leaking one
+    aiohttp session per reload."""
+    session = aiohttp.ClientSession()
+    client = LibrusApiClient(session, "1234567u")
+    assert not session.closed
+    await client.async_close()
+    assert session.closed

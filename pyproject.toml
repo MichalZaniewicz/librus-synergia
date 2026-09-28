@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "librus-synergia"
+dynamic = ["version"]
+description = "Unofficial async Python client for Librus Synergia (Polish school e-gradebook)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Michał Zaniewicz" }]
+requires-python = ">=3.12"
+dependencies = ["aiohttp>=3.9", "yarl>=1.9"]
+keywords = ["librus", "synergia", "e-dziennik", "school", "gradebook", "async"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Natural Language :: Polish",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/MichalZaniewicz/librus-synergia"
+Documentation = "https://github.com/MichalZaniewicz/librus-synergia/tree/main/docs"
+Issues = "https://github.com/MichalZaniewicz/librus-synergia/issues"
+"Home Assistant integration" = "https://github.com/MichalZaniewicz/ha-librus-synergia"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff", "mypy"]
+
+[tool.hatch.version]
+path = "src/librus_synergia/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/librus_synergia"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+strict = true
+packages = ["librus_synergia"]
+mypy_path = "src"
