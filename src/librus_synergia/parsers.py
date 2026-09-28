@@ -57,9 +57,9 @@ def parse_grade_value(value: str) -> float | None:
     4.5 from that string is not, by itself, proof of anything (it's the
     same assumed convention checking itself). The real independent check
     was cross-referencing the real Librus app's own displayed average for
-    that `4+` grade - also 4.5, confirmed by the account owner. -0.25
-    remains unverified - no `-`-modified grade has appeared live yet to
-    cross-check the same way.
+    that `4+` grade - also 4.5, confirmed by the account owner. The -0.25
+    half is CONFIRMED the same way (2026-09-28): a subject with a real `6`
+    and `4-` shows 4.88 in the Librus app, i.e. (6 + 3.75) / 2.
     """
     value = value.strip()
     if not value:

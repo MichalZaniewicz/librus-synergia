@@ -64,9 +64,10 @@ from averages**: `bz` (brak zadania), `np` (nieprzygotowany), `nk`
 a bare `+`/`-`.
 
 ✅ The API gives **no numeric value** for a modified grade, only the
-string `"4+"`. The `+` counts as **+0.5**: a real `4+` showed as 4.5 in
-Librus's own app. ❓ The `-` is assumed to count as −0.25; this has not
-been verified yet. See `parse_grade_value`.
+string `"4+"`. ✅ The `+` counts as **+0.5** and the `-` as **−0.25**:
+a real `4+` showed as 4.5, and a subject with a real `6` and `4-` showed
+an average of 4.88 ((6 + 3.75) / 2) in Librus's own app. See
+`parse_grade_value`.
 
 ## Behaviour notes (uwagi)
 
