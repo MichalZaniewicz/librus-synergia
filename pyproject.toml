@@ -31,12 +31,13 @@ librus-synergia = "librus_synergia.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/MichalZaniewicz/librus-synergia"
-Documentation = "https://github.com/MichalZaniewicz/librus-synergia/tree/main/docs"
+Documentation = "https://michalzaniewicz.github.io/librus-synergia/"
 Issues = "https://github.com/MichalZaniewicz/librus-synergia/issues"
 "Home Assistant integration" = "https://github.com/MichalZaniewicz/ha-librus-synergia"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff", "mypy"]
+docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.6,<10"]
 
 [tool.hatch.version]
 path = "src/librus_synergia/__init__.py"

@@ -25,7 +25,7 @@ This is the engine behind the [Librus Synergia Home Assistant integration](https
 ## Why another Librus library?
 
 - **Uses the current login flow.** The old OAuth password grant (`client_id=28`) has returned `unsupported_grant_type` since 2026. This library uses the flow Librus's own web portal uses, with no captcha on a normal login.
-- **Parses real responses, not guesses.** The parsers are built from real account responses and cover the traps: timetables are nested period slots, ids are sometimes ints and sometimes strings, `FirstName` can be `null`, message bodies are truncated base64 wrapped in CDATA, and more. See [the API notes](docs/).
+- **Parses real responses, not guesses.** The parsers are built from real account responses and cover the traps: timetables are nested period slots, ids are sometimes ints and sometimes strings, `FirstName` can be `null`, message bodies are truncated base64 wrapped in CDATA, and more. See [the API notes](https://michalzaniewicz.github.io/librus-synergia/).
 - **Runs unattended.** It persists the session and the long-lived device cookie, logs in again automatically when Librus drops the session early, and treats an unpublished timetable (HTTP 403) as "no timetable yet" rather than an error.
 - **Async and typed.** It uses `aiohttp`, returns dataclasses, and passes `mypy --strict`.
 
@@ -112,7 +112,7 @@ The first update only remembers what already exists, so a whole school year isn'
 
 ## Kindergarten accounts
 
-Kindergarten (przedszkole) accounts don't have the regular timetable: Librus answers it with HTTP 403. After such a 403, `timetable()` looks for the child once and switches to the kindergarten timetable API on its own. `subjects()`, `teachers()`, `classrooms()` and `school_class()` then include the kindergarten activities, rooms and group. Lessons there are time blocks, so `lesson_no` is `None`. See [docs/kindergarten.md](docs/kindergarten.md).
+Kindergarten (przedszkole) accounts don't have the regular timetable: Librus answers it with HTTP 403. After such a 403, `timetable()` looks for the child once and switches to the kindergarten timetable API on its own. `subjects()`, `teachers()`, `classrooms()` and `school_class()` then include the kindergarten activities, rooms and group. Lessons there are time blocks, so `lesson_no` is `None`. See [kindergarten accounts](https://michalzaniewicz.github.io/librus-synergia/kindergarten/).
 
 ## Keeping the session between runs
 
@@ -143,7 +143,7 @@ week = parsers.merge_timetables(await librus.client.async_get_timetable(date(202
 
 ## Unofficial Librus API notes
 
-The [`docs/`](docs/) folder describes the private API itself: the login flow, every endpoint's shape, and what each status code really means. Every claim is marked as confirmed against a real account, taken from another client's source, or still unverified. It's language-agnostic, so it's useful even if you're not writing Python.
+The **[unofficial Librus API notes](https://michalzaniewicz.github.io/librus-synergia/)** (source in [`docs/`](docs/)) describe the private API itself: the login flow, every endpoint's shape, and what each status code really means. Every claim is marked as confirmed against a real account, taken from another client's source, or still unverified. It's language-agnostic, so it's useful even if you're not writing Python.
 
 ## Errors
 
@@ -153,7 +153,7 @@ Everything raises a subclass of `LibrusError`:
 - `LibrusConnectionError`: `LibrusServerMaintenanceError` (HTTP 503)
 - `LibrusUnexpectedResponseError`: a response shape we didn't expect
 
-See [docs/errors.md](docs/errors.md).
+See [errors and status codes](https://michalzaniewicz.github.io/librus-synergia/errors/).
 
 ## Please be gentle
 

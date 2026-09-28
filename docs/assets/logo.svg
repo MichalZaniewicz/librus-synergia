@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-20 0 230 260">
+  <rect x="-18" y="18" width="150" height="230" rx="26" fill="#2A2568"/>
+  <rect x="10" y="8" width="190" height="250" rx="30" fill="#818CF8"/>
+  <text x="105" y="165" text-anchor="middle" font-family="Consolas, Menlo, monospace" font-size="64" font-weight="700" fill="#FFFFFF">&lt;/&gt;</text>
+  <path d="M138,8 h42 v60 l-21,-18 l-21,18 z" fill="#F59E0B"/>
+</svg>

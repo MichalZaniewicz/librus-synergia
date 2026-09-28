@@ -1,0 +1,61 @@
+site_name: Unofficial Librus Synergia API
+site_description: How Librus Synergia's private API actually behaves - login flow, endpoint shapes, status codes. Observed against real accounts.
+site_url: https://michalzaniewicz.github.io/librus-synergia/
+repo_url: https://github.com/MichalZaniewicz/librus-synergia
+repo_name: MichalZaniewicz/librus-synergia
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+exclude_docs: |
+  social-preview.*
+
+nav:
+  - Overview: README.md
+  - Authentication: authentication.md
+  - Data endpoints: endpoints.md
+  - Messages (Wiadomości): messages.md
+  - Kindergarten accounts: kindergarten.md
+  - Errors and status codes: errors.md
+  - Python library: https://github.com/MichalZaniewicz/librus-synergia#readme
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/MichalZaniewicz/librus-synergia
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/librus-synergia/
