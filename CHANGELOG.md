@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 ### Added
 - **`ChangeTracker`** reports what's new between snapshots: grades, behaviour notes, announcements, messages, agenda entries, absences and timetable changes. The first update seeds silently, and the seen ids serialize to JSON so "new" survives restarts.
