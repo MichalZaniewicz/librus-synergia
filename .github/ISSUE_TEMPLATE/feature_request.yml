@@ -1,0 +1,11 @@
+name: Feature request
+description: An endpoint, method or helper you'd like the library to have
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: The endpoint or data, and what you'd use it for.
+    validations:
+      required: true

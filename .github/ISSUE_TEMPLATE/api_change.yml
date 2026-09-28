@@ -1,0 +1,32 @@
+name: Librus API changed / new response shape
+description: A response doesn't match docs/, or you have data for something marked 📖/❓
+labels: [api]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These reports are how the [API notes](https://github.com/MichalZaniewicz/librus-synergia/tree/main/docs) stay correct.
+        Share the **shape** of the JSON (keys and value types), not personal data. Replace names, ids and text with placeholders.
+  - type: input
+    id: endpoint
+    attributes:
+      label: Endpoint
+      placeholder: gateway/api/2.0/Grades
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: Response shape (redacted)
+      render: json
+    validations:
+      required: true
+  - type: dropdown
+    id: account
+    attributes:
+      label: Account type
+      options:
+        - Parent
+        - Student
+        - Kindergarten
+        - Other

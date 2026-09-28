@@ -1,0 +1,39 @@
+name: Bug report
+description: Something in the library is broken or returns wrong data
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! English or Polish are both fine.
+
+        **Never paste passwords, cookies or session data.** Redact names and message text from payloads.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you called, what you got, and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Minimal code
+      render: python
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: librus-synergia version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.13"
