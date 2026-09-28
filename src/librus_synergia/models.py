@@ -341,7 +341,7 @@ class ParentTeacherConferenceData:
 
 @dataclass(slots=True)
 class LibrusData:
-    """A full snapshot of one student's data (see `Librus.async_fetch_all`)."""
+    """A full snapshot of one student's data (see `Librus.fetch_all`)."""
 
     me: MeData
     grades: list[GradeData]
