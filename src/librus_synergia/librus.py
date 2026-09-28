@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import date, timedelta
+from functools import partial
 from types import TracebackType
 from typing import Any, TypeVar
 
@@ -84,6 +85,12 @@ class Librus:
         self._client: LibrusApiClient | None = None
         self._messages_available: bool | None = None
         self._login_lock = asyncio.Lock()
+        # Kindergarten accounts (see `kindergartener_id`): discovered at most
+        # once per instance.
+        self._kindergarten_lock = asyncio.Lock()
+        self._kindergarten_checked = False
+        self._kindergarten_lid: str | None = None
+        self._kindergarten_group_id: str | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -183,20 +190,140 @@ class Librus:
         return parsers.parse_school(await self._call(self.client.async_get_schools))
 
     async def school_class(self) -> ClassData | None:
+        """The class. For a kindergarten account (once detected), the
+        kindergarten group instead."""
+        if self._kindergarten_group_id is not None:
+            group_id = self._kindergarten_group_id
+            group = parsers.parse_kindergarten_group(
+                await self._probe(lambda: self.client.async_get_kindergarten_group(group_id))
+            )
+            if group is not None:
+                return group
         return parsers.parse_class(await self._call(self.client.async_get_classes))
 
-    async def subjects(self) -> dict[int, str]:
-        """Subject id -> name. Grades/lessons carry only the id."""
+    async def subjects(self) -> dict[int | str, str]:
+        """Subject id -> name. Grades/lessons carry only the id. Includes
+        kindergarten activity names once a kindergarten account is detected."""
         payload = await self._call(self.client.async_get_subjects)
-        return parsers.parse_id_name_map(payload, ("Subjects",))
+        result: dict[int | str, str] = {
+            k: v for k, v in parsers.parse_id_name_map(payload, ("Subjects",)).items()
+        }
+        if self._kindergarten_lid is not None:
+            result.update(
+                parsers.parse_kindergarten_activity_types(
+                    await self._probe(self.client.async_get_kindergarten_activity_types)
+                )
+            )
+        return result
 
-    async def teachers(self) -> dict[int, str]:
+    async def teachers(self) -> dict[int | str, str]:
         payload = await self._call(self.client.async_get_teachers)
-        return parsers.parse_id_name_map(payload, ("Users", "Teachers"))
+        result: dict[int | str, str] = {
+            k: v for k, v in parsers.parse_id_name_map(payload, ("Users", "Teachers")).items()
+        }
+        if self._kindergarten_lid is not None:
+            result.update(parsers.parse_kindergarten_teachers(payload))
+        return result
 
-    async def classrooms(self) -> dict[int, str]:
+    async def classrooms(self) -> dict[int | str, str]:
         payload = await self._call(self.client.async_get_classrooms)
-        return parsers.parse_id_name_map(payload, ("Classrooms",))
+        result: dict[int | str, str] = {
+            k: v for k, v in parsers.parse_id_name_map(payload, ("Classrooms",)).items()
+        }
+        if self._kindergarten_lid is not None:
+            result.update(
+                parsers.parse_kindergarten_classrooms(
+                    await self._probe(self.client.async_get_kindergarten_classrooms)
+                )
+            )
+        return result
+
+    # ------------------------------------------------------------------
+    # Kindergarten (przedszkole) accounts
+    # ------------------------------------------------------------------
+
+    async def _probe(self, fetch: Callable[[], Awaitable[Any]]) -> dict[str, Any]:
+        """One best-effort request: any Librus error becomes `{}`."""
+        try:
+            result = await self._call(fetch)
+        except LibrusError:
+            return {}
+        return result if isinstance(result, dict) else {}
+
+    async def kindergartener_id(self) -> str | None:
+        """The child's `LID-AUTH-USER-...` identifier on a kindergarten
+        account, or None for a regular one.
+
+        Kindergarten accounts get HTTP 403 from `Timetables`; their timetable
+        lives in a separate API keyed by this identifier. `timetable()` calls
+        this automatically after such a 403, so you rarely need it directly.
+        Candidates come from `Me`, `Auth/TokenInfo` (+ `Auth/UserInfo`) and
+        `Users/<id>`; the one whose kindergarten timetable has entries wins.
+        Runs at most once per `Librus` instance and never raises."""
+        async with self._kindergarten_lock:
+            if self._kindergarten_checked:
+                return self._kindergarten_lid
+            self._kindergarten_checked = True
+            candidates: dict[str, None] = {}
+
+            def add(values: list[str]) -> None:
+                for value in values:
+                    candidates.setdefault(value, None)
+
+            me_payload = await self._probe(self.client.async_get_me)
+            raw_me = me_payload.get("Me")
+            me: dict[str, Any] = raw_me if isinstance(raw_me, dict) else {}
+            add(parsers.collect_lid_user_identifiers(me.get("User")))
+            add(parsers.collect_lid_user_identifiers(me))
+
+            token_lid = parsers.extract_token_user_identifier(
+                await self._probe(self.client.async_get_token_info)
+            )
+            if token_lid:
+                add([token_lid])
+                add(
+                    parsers.collect_lid_user_identifiers(
+                        await self._probe(lambda: self.client.async_get_user_info(token_lid))
+                    )
+                )
+
+            raw_account = me.get("Account")
+            account: dict[str, Any] = raw_account if isinstance(raw_account, dict) else {}
+            for numeric_id in dict.fromkeys(
+                value
+                for value in (account.get("UserId"), account.get("Id"))
+                if isinstance(value, int) and not isinstance(value, bool) and value > 0
+            ):
+                add(
+                    parsers.collect_lid_user_identifiers(
+                        await self._probe(partial(self.client.async_get_user, numeric_id))
+                    )
+                )
+
+            today = date.today()
+            for lid in list(candidates)[:6]:
+                payload = await self._probe(
+                    partial(
+                        self.client.async_get_kindergarten_timetable,
+                        lid,
+                        today - timedelta(days=30),
+                        today + timedelta(days=60),
+                    )
+                )
+                entries = payload.get("timetableEntries")
+                if not isinstance(entries, list) or not entries:
+                    continue
+                self._kindergarten_lid = lid
+                child = await self._probe(partial(self.client.async_get_kindergartener, lid))
+                child_data = child.get("data")
+                group_id = (
+                    child_data.get("groupIdentifier") if isinstance(child_data, dict) else None
+                )
+                self._kindergarten_group_id = (
+                    group_id if isinstance(group_id, str) and group_id else None
+                )
+                break
+            return self._kindergarten_lid
 
     # ------------------------------------------------------------------
     # Grades / behaviour
@@ -254,11 +381,30 @@ class Librus:
 
     async def timetable(self, week_of: date | None = None) -> dict[date, list[LessonData]]:
         """Lessons for the week containing `week_of` (default: this week).
-        Returns `{}` when the school hasn't published the timetable yet
-        (Librus answers that case with HTTP 403)."""
+
+        Librus answers HTTP 403 both when a school hasn't published the
+        timetable yet and for kindergarten accounts. After a 403 this looks
+        for a kindergarten child once (see `kindergartener_id`) and, if one
+        is found, returns the kindergarten timetable (time blocks, no lesson
+        numbers). Otherwise it returns `{}`."""
         start = week_start_of(week_of or date.today())
+        if self._kindergarten_lid is None:
+            try:
+                payload = await self._call(lambda: self.client.async_get_timetable(start))
+                return parsers.merge_timetables(payload)
+            except LibrusSessionExpiredError as err:
+                if err.status_code != 403:
+                    raise
+            if await self.kindergartener_id() is None:
+                return {}
+        lid = self._kindergarten_lid
+        assert lid is not None
         try:
-            payload = await self._call(lambda: self.client.async_get_timetable(start))
+            payload = await self._call(
+                lambda: self.client.async_get_kindergarten_timetable(
+                    lid, start, start + timedelta(days=6)
+                )
+            )
         except LibrusSessionExpiredError as err:
             if err.status_code == 403:
                 return {}

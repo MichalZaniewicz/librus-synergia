@@ -33,6 +33,18 @@ pip install librus-synergia
 
 Requires Python 3.12+.
 
+## From the command line
+
+No code needed to have a look at an account:
+
+```bash
+librus-synergia                          # summary: grades, next days' timetable, absences, lucky number
+librus-synergia --json > librus.json     # everything, as JSON
+librus-synergia --watch --state seen.json   # check every 15 min and print what's new
+```
+
+Credentials come from the `LIBRUS_LOGIN` / `LIBRUS_PASSWORD` environment variables, or you're asked for them. Add `--session session.json` to reuse the login between runs, and keep that file private.
+
 ## Quick start
 
 ```python
@@ -77,6 +89,26 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `fetch_all()` | everything above as one `LibrusData` snapshot |
 
 Every method logs in lazily and retries once after a fresh login if the session has expired.
+
+## What's new since last time?
+
+`ChangeTracker` compares snapshots and reports only new grades, behaviour notes, announcements, messages, agenda entries, absences and timetable changes (cancelled lessons, substitutions). It's the building block for notification bots:
+
+```python
+from librus_synergia import ChangeTracker, SeenIds
+
+tracker = ChangeTracker(SeenIds.from_dict(saved) if saved else None)
+changes = tracker.update(await librus.fetch_all())
+for grade in changes.grades:
+    notify(f"New grade: {grade.value}")
+save(tracker.seen.to_dict())      # plain JSON-able dict
+```
+
+The first update only remembers what already exists, so a whole school year isn't reported as "new". An item that drops out of Librus's window and comes back isn't reported twice.
+
+## Kindergarten accounts
+
+Kindergarten (przedszkole) accounts don't have the regular timetable: Librus answers it with HTTP 403. After such a 403, `timetable()` looks for the child once and switches to the kindergarten timetable API on its own. `subjects()`, `teachers()`, `classrooms()` and `school_class()` then include the kindergarten activities, rooms and group. Lessons there are time blocks, so `lesson_no` is `None`. See [docs/kindergarten.md](docs/kindergarten.md).
 
 ## Keeping the session between runs
 

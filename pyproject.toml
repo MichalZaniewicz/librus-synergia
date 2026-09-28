@@ -26,6 +26,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+[project.scripts]
+librus-synergia = "librus_synergia.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/MichalZaniewicz/librus-synergia"
 Documentation = "https://github.com/MichalZaniewicz/librus-synergia/tree/main/docs"

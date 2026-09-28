@@ -8,6 +8,7 @@ Two layers:
 """
 
 from . import parsers
+from .changes import Changes, ChangeTracker, SeenIds, TimetableChange
 from .client import LibrusApiClient, LibrusSessionData
 from .exceptions import (
     LibrusAccountActionRequiredError,
@@ -27,6 +28,10 @@ __version__ = "0.1.0"
 
 __all__ = [
     "Librus",
+    "ChangeTracker",
+    "Changes",
+    "SeenIds",
+    "TimetableChange",
     "LibrusApiClient",
     "LibrusSessionData",
     "parsers",

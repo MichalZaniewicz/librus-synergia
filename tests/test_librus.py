@@ -49,16 +49,6 @@ async def test_expired_session_relogs_in_once_and_retries() -> None:
     assert me.display_name == "Jan Kowalski"
 
 
-async def test_unpublished_timetable_is_empty_not_an_error() -> None:
-    async with aiohttp.ClientSession() as session:
-        with MockedSession(session) as mocked:
-            mock_successful_login(session, mocked)
-            mocked.get(f"{DATA_BASE_URL}/Timetables", status=403, json_data={})
-            librus = Librus("1234567u", "pw", session=session)
-            assert await librus.timetable(date(2026, 9, 3)) == {}
-            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 1
-
-
 async def test_messages_module_disabled_returns_empty() -> None:
     async with aiohttp.ClientSession() as session:
         with MockedSession(session) as mocked:
@@ -102,3 +92,74 @@ async def test_context_manager_closes_own_session() -> None:
     async with Librus("1234567u", "pw") as librus:
         session = librus.client._session
     assert session.closed
+
+
+CHILD_LID = "LID-AUTH-USER-1-CHILD"
+KG = "https://synergia.librus.pl/gateway/ms/kindergartens"
+
+
+async def test_regular_account_never_probes_kindergarten() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/Timetables", json_data={"Timetable": {}})
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.timetable(date(2026, 9, 3)) == {}
+            # Any kindergarten request would hit an unregistered URL and fail.
+            assert librus._kindergarten_checked is False
+
+
+async def test_kindergarten_account_found_after_timetable_403() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/Timetables", status=403, json_data={})
+            mocked.get(
+                f"{DATA_BASE_URL}/Me",
+                json_data={"Me": {"User": {"FirstName": "Ala", "Id": CHILD_LID}, "Account": {}}},
+            )
+            mocked.get(f"{DATA_BASE_URL}/Auth/TokenInfo", status=403, json_data={})
+            mocked.get(
+                f"{KG}/timetable/kindergarteners/{CHILD_LID}",
+                json_data={
+                    "timetableEntries": [
+                        {
+                            "date": "2026-09-01",
+                            "startTime": "08:00",
+                            "endTime": "08:30",
+                            "activityTypeIdentifier": "LID-ACT-1",
+                            "type": "planned",
+                        }
+                    ]
+                },
+            )
+            mocked.get(
+                f"{DATA_BASE_URL}/Auth/Users/Kindergarteners/{CHILD_LID}",
+                json_data={"data": {"groupIdentifier": "LID-GROUP-1"}},
+            )
+            mocked.get(f"{DATA_BASE_URL}/Subjects", json_data={"Subjects": []})
+            mocked.get(
+                f"{KG}/activities-types",
+                json_data={"activitiesTypes": [{"identifier": "LID-ACT-1", "name": "Rytmika"}]},
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            week = await librus.timetable(date(2026, 9, 1))
+            assert await librus.kindergartener_id() == CHILD_LID
+            subjects = await librus.subjects()
+    (lesson,) = week[date(2026, 9, 1)]
+    assert lesson.lesson_no is None
+    assert subjects[lesson.subject_id] == "Rytmika"
+
+
+async def test_forbidden_timetable_without_kindergarten_is_empty() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/Timetables", status=403, json_data={})
+            mocked.get(f"{DATA_BASE_URL}/Me", json_data={"Me": {"User": {}, "Account": {}}})
+            mocked.get(f"{DATA_BASE_URL}/Auth/TokenInfo", status=403, json_data={})
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.timetable(date(2026, 9, 1)) == {}
+            assert await librus.timetable(date(2026, 9, 8)) == {}
+            # Discovery ran once, not on every call.
+            assert mocked.get_calls[f"{DATA_BASE_URL}/Auth/TokenInfo"] == 1
