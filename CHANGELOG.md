@@ -8,3 +8,5 @@ First release, extracted from the [ha-librus-synergia](https://github.com/Michal
 - `LibrusApiClient`: the low-level client, one method per endpoint, returning raw JSON.
 - `librus_synergia.parsers`: pure JSON → dataclass parsers.
 - `docs/`: unofficial notes on the Librus API.
+- Session export includes `DeviceCookie`, which Librus sets under `Path=/OAuth`, and import restores its path.
+- A mailbox the account doesn't have (HTTP 404) comes back as an empty list, without a pointless re-login.

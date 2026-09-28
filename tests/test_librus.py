@@ -69,6 +69,20 @@ async def test_messages_module_disabled_returns_empty() -> None:
             assert await librus.unread_messages() == {}
 
 
+async def test_missing_mailbox_is_empty_without_relogin() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(MESSAGES_BOOTSTRAP_URL, text_data="<html>ok</html>")
+            mocked.get(
+                f"{MESSAGES_BASE_URL}/substitutions/messages", status=404, json_data={"data": []}
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.messages("substitutions") == []
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 1
+            assert mocked.get_calls[MESSAGES_BOOTSTRAP_URL] == 1
+
+
 async def test_messages_listed() -> None:
     async with aiohttp.ClientSession() as session:
         with MockedSession(session) as mocked:

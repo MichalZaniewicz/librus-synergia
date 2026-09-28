@@ -83,4 +83,9 @@ class LibrusAccountActionRequiredError(LibrusAuthError):
 class LibrusUnexpectedResponseError(LibrusError):
     """The response didn't have the shape expected (missing/renamed JSON
     keys, non-JSON body, wrong HTTP status, redirect chain that never
-    terminated)."""
+    terminated). `status_code` is set when the cause was an HTTP error
+    status (e.g. 404 for a mailbox this account doesn't have)."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code

@@ -22,7 +22,7 @@ import aiohttp
 
 from . import parsers
 from .client import LibrusApiClient, LibrusSessionData, OnSessionUpdate
-from .exceptions import LibrusError, LibrusSessionExpiredError
+from .exceptions import LibrusError, LibrusSessionExpiredError, LibrusUnexpectedResponseError
 from .models import (
     AttendanceData,
     AttendanceTypeData,
@@ -158,6 +158,13 @@ class Librus:
                 return None
             try:
                 return await fetch()
+            except LibrusUnexpectedResponseError as err:
+                # A 404 means "no such mailbox for this account" (confirmed
+                # live for substitutions/alerts), not a dead session.
+                if err.status_code == 404 or attempt:
+                    raise
+                self._messages_available = None
+                await self.login(force=True)
             except LibrusError:
                 if attempt:
                     raise
@@ -313,10 +320,16 @@ class Librus:
 
     async def messages(self, mailbox: str = "inbox", *, limit: int = 10) -> list[MessageData]:
         """Recent messages. `content` is Librus's own truncated preview.
-        Listing does NOT mark anything read."""
-        payload = await self._call_messages(
-            lambda: self.client.async_get_messages(mailbox, limit=limit)
-        )
+        Listing does NOT mark anything read. A mailbox this account doesn't
+        have (Librus answers 404) comes back empty."""
+        try:
+            payload = await self._call_messages(
+                lambda: self.client.async_get_messages(mailbox, limit=limit)
+            )
+        except LibrusUnexpectedResponseError as err:
+            if err.status_code == 404:
+                return []
+            raise
         return [] if payload is None else parsers.parse_message_list(payload, mailbox)
 
     async def message(self, message_id: str, mailbox: str = "inbox") -> FullMessageData | None:

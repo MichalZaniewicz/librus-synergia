@@ -58,9 +58,13 @@ If any response body in steps 3–4 contains a captcha marker (`captcha`,
 
 | Cookie | Domain | Lifetime | Why it matters |
 |---|---|---|---|
-| `oauth_token` | synergia.librus.pl | ✅ ~24 h | The actual session. |
+| `oauth_token` | synergia.librus.pl | ✅ `Max-Age=600` per response, session usable ~24 h | The actual session. ❓ The 10-minute Max-Age suggests it's re-issued on every request (sliding expiry). |
 | `DZIENNIKSID`, `SDZIENNIKSID` | both | session | Session companions. |
-| `DeviceCookie` | api.librus.pl | ✅ ~1 year | Marks a known device. ❓ Probably why normal logins get no captcha. **Persist it.** |
+| `DeviceCookie` | api.librus.pl, ✅ **`Path=/OAuth`** | ✅ 1 year (`Max-Age=31536000`) | Marks a known device. ❓ Probably why normal logins get no captcha. **Persist it, with its path.** |
+
+⚠️ Because `DeviceCookie` lives under `/OAuth`, asking a cookie jar for
+"cookies for `https://api.librus.pl/`" does **not** return it. Walk the jar
+(or filter for an `/OAuth/...` URL) when you persist the session.
 
 - There is **no refresh token**. When `oauth_token` expires you have to log
   in again with the password, so unattended long-running use needs the
