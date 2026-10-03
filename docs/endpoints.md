@@ -49,7 +49,7 @@ Two things apply to every endpoint:
 
 | Endpoint | Root key | Notes |
 |---|---|---|
-| `Grades` | `Grades` | ✅ `Grade` (string), `Subject.Id`, `Category.Id`, `Semester`, `AddDate`, `IsSemesterProposition`, `IsFinalProposition`, `IsSemester`, `IsFinal`, `Comments`. 📖 `AddedBy.Id` is the teacher who added the grade (a `Users` id). |
+| `Grades` | `Grades` | ✅ `Grade` (string), `Subject.Id`, `Category.Id`, `Semester`, `AddDate`, `IsSemesterProposition`, `IsFinalProposition`, `IsSemester`, `IsFinal`, `Comments`. ✅ `AddedBy.Id` is the teacher who added the grade (a `Users` id): on a real account all 15 grades resolved to the subject's own teacher. |
 | `Grades/Comments` | `Comments` | 📖 `[{"Id", "Text"}]`. `Grades[].Comments` is a list of **ids into this endpoint**, not embedded text. ✅ Real teacher comments on a real account resolve this way. ❓ Whether each list item is a bare id or an `{"Id": ...}` object was not captured, so accept both. |
 | `DescriptiveGrades` | `Grades` | 📖 `Subject`, `Skill`, `Category`, `Grade`, `AddDate`. Only when `Units` enables them. |
 | `PointGrades`, `TextGrades` | — | ✅ Reachable, empty on tested accounts. |
@@ -147,7 +147,7 @@ GET Timetables?weekStart=YYYY-MM-DD      (a Monday)
 | Endpoint | Root key | Notes |
 |---|---|---|
 | `HomeWorks` | `HomeWorks` | ✅ **The agenda (terminarz)**, despite the name: tests, trips, parent meetings. `Category.Id`, `Subject.Id`, `Date`, `TimeFrom`, `Content`. Some teachers file a quiz under the "Inne" category and say "kartkówka" only in `Content`, so match both fields. ✅ School-wide entries (parent meetings, assemblies) have no subject. |
-| `HomeWorkAssignments` | `HomeWorkAssignments` | ✅ Real homework: `Topic`, `Text`, `Teacher.Id`, `Date`, `DueDate`. **No `Subject` field.** |
+| `HomeWorkAssignments` | `HomeWorkAssignments` | ✅ Real homework: `Topic`, `Text`, `Teacher.Id`, `Date`, `DueDate`. **No `Subject` field.** ✅ The subject can be recovered from the teacher's lessons in `Timetables` when that teacher teaches only one subject (all 7 real assignments on a tested account resolved this way). |
 | `SchoolFreeDays` | `SchoolFreeDays` | ✅ `Name`, `DateFrom`, `DateTo`. |
 | `ClassFreeDays` | `ClassFreeDays` | ✅ Same shape. Empty on tested accounts. |
 | `ParentTeacherConferences` | `ParentTeacherConferences` | ✅ `Id`, `Topic`, `Teacher.Id` (the class tutor on the tested account), `Date`, `Time` (`"17:00:00"`). ✅ **The same meeting also appears in `HomeWorks`**, under a "Zebranie z rodzicami" category, with the same date and `TimeFrom` but different wording. Merging both sources gives duplicates, so match on date and time. |
