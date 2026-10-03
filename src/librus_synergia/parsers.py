@@ -191,6 +191,7 @@ def parse_grades(
             continue
         category = item.get("Category") or {}
         subject = item.get("Subject") or {}
+        added_by = item.get("AddedBy") or {}
         comments = resolve_comment_ids(item.get("Comments"), comment_text_by_id or {})
         grades.append(
             GradeData(
@@ -210,6 +211,7 @@ def parse_grades(
                 is_semester=bool(item.get("IsSemester")),
                 is_final=bool(item.get("IsFinal")),
                 comments=comments,
+                teacher_id=as_int(added_by.get("Id")) if isinstance(added_by, dict) else None,
             )
         )
     return grades

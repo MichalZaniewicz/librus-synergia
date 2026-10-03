@@ -139,6 +139,19 @@ def test_grade_comments_resolved_by_id() -> None:
     assert grades[0].comments == ["Brawo"]
 
 
+def test_grade_teacher_from_added_by() -> None:
+    added, missing = parsers.parse_grades(
+        {
+            "Grades": [
+                {"Id": 1, "Grade": "5", "AddedBy": {"Id": 1603930, "Url": ".../Users/1603930"}},
+                {"Id": 2, "Grade": "4"},
+            ]
+        }
+    )
+    assert added.teacher_id == 1603930
+    assert missing.teacher_id is None
+
+
 def test_school_notice_id_is_string() -> None:
     (notice,) = parsers.parse_school_notices(
         {"SchoolNotices": [{"Id": "LID-NBOARD-NOTICE-9093", "Subject": "Apel", "Content": "..."}]}

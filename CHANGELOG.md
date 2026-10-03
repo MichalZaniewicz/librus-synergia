@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+- **`GradeData.teacher_id`**: who added the grade, from `Grades[].AddedBy.Id`
+  (a `Users` id, so resolve it with `teachers()`). `None` when the field is
+  missing.
+
 ## 0.2.0
 
 ### Added

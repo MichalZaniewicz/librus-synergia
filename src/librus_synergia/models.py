@@ -59,6 +59,9 @@ class GradeData:
     is_semester: bool = False
     is_final: bool = False
     comments: list[str] = field(default_factory=list)
+    # Who added the grade (`AddedBy.Id`, a `Users` id) - the field
+    # szkolny-android's `LibrusApiGrades.kt` reads for the grade's teacher.
+    teacher_id: int | None = None
 
 
 @dataclass(slots=True)
