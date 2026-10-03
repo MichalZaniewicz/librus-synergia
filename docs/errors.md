@@ -6,7 +6,7 @@
 | 403 | `Timetables` | ✅ The school hasn't published this class's timetable yet (Synergia's own web UI says "nie został jeszcze opublikowany"), **or** it is a kindergarten account. Logging in again does not help. | Treat as an empty timetable. | `LibrusSessionExpiredError(status_code=403)` |
 | 403 | other endpoints | ✅ The module is not available to this account type (e.g. `Substitutions`, `TeacherFreeDays`, or `Attendances/Types` on a messages-only preschool login). | Treat as empty. | same |
 | 404 | `AttendanceTypes`, some mailboxes | Wrong path, or the mailbox doesn't exist for this account. | — | `LibrusUnexpectedResponseError` |
-| 503 | any | ✅ Maintenance. | Retry later. | `LibrusServerMaintenanceError` |
+| 503 | any | ✅ Maintenance. Seen on `Me` too. Windows observed so far were short: the next poll 20 minutes later worked. | Retry later. | `LibrusServerMaintenanceError` |
 | 200 + HTML | any | The response isn't JSON (often a login page). | — | `LibrusUnexpectedResponseError` |
 
 Login failures:

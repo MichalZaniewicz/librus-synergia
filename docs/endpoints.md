@@ -50,7 +50,7 @@ Two things apply to every endpoint:
 | Endpoint | Root key | Notes |
 |---|---|---|
 | `Grades` | `Grades` | ✅ `Grade` (string), `Subject.Id`, `Category.Id`, `Semester`, `AddDate`, `IsSemesterProposition`, `IsFinalProposition`, `IsSemester`, `IsFinal`, `Comments`. |
-| `Grades/Comments` | `Comments` | 📖 `[{"Id", "Text"}]`. `Grades[].Comments` is a list of **ids into this endpoint**, not embedded text. |
+| `Grades/Comments` | `Comments` | 📖 `[{"Id", "Text"}]`. `Grades[].Comments` is a list of **ids into this endpoint**, not embedded text. ✅ Real teacher comments on a real account resolve this way. ❓ Whether each list item is a bare id or an `{"Id": ...}` object was not captured, so accept both. |
 | `DescriptiveGrades` | `Grades` | 📖 `Subject`, `Skill`, `Category`, `Grade`, `AddDate`. Only when `Units` enables them. |
 | `PointGrades`, `TextGrades` | — | ✅ Reachable, empty on tested accounts. |
 | `BehaviourGrades/Points` | `Grades` | 📖 The formal behaviour grade ("ocena zachowania"): `Value`, `ShortName`, `Category`, `Semester`, `Comments` (ids into `BehaviourGrades/Points/Comments`). |
@@ -69,6 +69,11 @@ a real `4+` showed as 4.5, and a subject with a real `6` and `4-` showed
 an average of 4.88 ((6 + 3.75) / 2) in Librus's own app. See
 `parse_grade_value`.
 
+✅ Values seen on a real account so far: `2`, `4`, `5`, `6`, `4+`, `5+`,
+`4-`, `6-`, and a bare `+` filed under an "aktywność" (class activity)
+category. That bare `+` is a mark, not a grade: a subject whose only entry
+is a `+` has **no average**.
+
 ## Behaviour notes (uwagi)
 
 | Endpoint | Root key | Notes |
@@ -79,7 +84,7 @@ an average of 4.88 ((6 + 3.75) / 2) in Librus's own app. See
 
 | Endpoint | Root key | Notes |
 |---|---|---|
-| `Attendances` | `Attendances` | ✅ `Lesson.Id`, `LessonNo`, `Date`, `Semester`, `Type.Id`. ✅ Most records are ordinary *presence* marks, so do not count records as absences. ✅ `Id` can be a string like `"t41685"`. |
+| `Attendances` | `Attendances` | ✅ `Lesson.Id`, `LessonNo`, `Date`, `Semester`, `Type.Id`. ✅ Most records are ordinary *presence* marks, so do not count records as absences. ✅ `Id` can be a string like `"t41685"`. ✅ On a real account, all 151 records' `Lesson.Id`s resolved against `Lessons`. |
 
 ✅ `Attendances/Types` on a real account:
 
@@ -90,9 +95,20 @@ an average of 4.88 ((6 + 3.75) / 2) in Librus's own app. See
 | 3 | Nieobecność uspr. | false |
 | 4 | Zwolnienie | true |
 | 100 | Obecność | true |
+| 1685 | Pobyt w sanatorium | true |
+
+✅ Schools add **their own types** on top of the standard ones (the
+sanatorium stay above has a school-specific id). Don't hard-code ids;
+always read `IsPresenceKind` from this endpoint.
 
 There is no "excused" flag. Excused absences can only be recognized by
 `uspr.` in the type name.
+
+✅ Attendance can be **missing for whole subjects**. On one real account a
+subject taught twice a week had only 2 records after a month, both
+absences, while every other subject had a record for each lesson. Some
+teachers apparently don't take attendance in Librus. A per-subject
+percentage computed from a handful of records says nothing useful.
 
 ## Timetable
 
@@ -123,16 +139,18 @@ GET Timetables?weekStart=YYYY-MM-DD      (a Monday)
   yet*, which is not a session problem (see [errors](errors.md)).
 - ✅ `Substitutions` returns 403 for parent/student accounts. Substitutions
   only show up as `IsSubstitutionClass` on lessons.
+- ✅ A substitution lesson often has **no classroom**, even when the regular
+  lesson in that slot has one.
 
 ## Agenda, homework, free days
 
 | Endpoint | Root key | Notes |
 |---|---|---|
-| `HomeWorks` | `HomeWorks` | ✅ **The agenda (terminarz)**, despite the name: tests, trips, parent meetings. `Category.Id`, `Subject.Id`, `Date`, `TimeFrom`, `Content`. Some teachers file a quiz under the "Inne" category and say "kartkówka" only in `Content`, so match both fields. |
+| `HomeWorks` | `HomeWorks` | ✅ **The agenda (terminarz)**, despite the name: tests, trips, parent meetings. `Category.Id`, `Subject.Id`, `Date`, `TimeFrom`, `Content`. Some teachers file a quiz under the "Inne" category and say "kartkówka" only in `Content`, so match both fields. ✅ School-wide entries (parent meetings, assemblies) have no subject. |
 | `HomeWorkAssignments` | `HomeWorkAssignments` | ✅ Real homework: `Topic`, `Text`, `Teacher.Id`, `Date`, `DueDate`. **No `Subject` field.** |
 | `SchoolFreeDays` | `SchoolFreeDays` | ✅ `Name`, `DateFrom`, `DateTo`. |
 | `ClassFreeDays` | `ClassFreeDays` | ✅ Same shape. Empty on tested accounts. |
-| `ParentTeacherConferences` | `ParentTeacherConferences` | 📖 `Topic`, `Teacher.Id`, `Date`, `Time`. ✅ Real parent meetings on tested accounts came through `HomeWorks` instead. |
+| `ParentTeacherConferences` | `ParentTeacherConferences` | ✅ `Id`, `Topic`, `Teacher.Id` (the class tutor on the tested account), `Date`, `Time` (`"17:00:00"`). ✅ **The same meeting also appears in `HomeWorks`**, under a "Zebranie z rodzicami" category, with the same date and `TimeFrom` but different wording. Merging both sources gives duplicates, so match on date and time. |
 
 ## Announcements and lucky number
 
