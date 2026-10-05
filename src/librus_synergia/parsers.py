@@ -581,9 +581,10 @@ def parse_behaviour_grades(
     payload: dict[str, Any], comment_text_by_id: dict[int, str] | None = None
 ) -> list[BehaviourGradeData]:
     """A formal "ocena zachowania" (behaviour grade) - distinct from Notes
-    ("uwagi", free-text remarks). Fields CONFIRMED (2026-09-06) via
-    szkolny-android's `LibrusApiBehaviourGrades.kt`. Still empty on this
-    account, so unverified against a real populated example."""
+    ("uwagi", free-text remarks). Fields via szkolny-android's
+    `LibrusApiBehaviourGrades.kt`; the classic-scale grade is in
+    `BehaviourGrade.Id` (see `BEHAVIOUR_GRADE_TYPES`), found live when a
+    real "bdb" came through with empty `ShortName`/`Text`."""
     items = payload.get("Grades")
     if not isinstance(items, list):
         return []
@@ -593,18 +594,22 @@ def parse_behaviour_grades(
             continue
         category = item.get("Category") or {}
         added_by = item.get("AddedBy") or {}
+        behaviour_grade = item.get("BehaviourGrade")
         comments = resolve_comment_ids(item.get("Comments"), comment_text_by_id or {})
         grades.append(
             BehaviourGradeData(
                 id=int(item["Id"]),
                 value=item.get("Value"),
-                short_name=item.get("ShortName", ""),
+                short_name=item.get("ShortName") or "",
                 semester=item.get("Semester"),
                 category_id=category.get("Id"),
                 teacher_id=added_by.get("Id"),
                 add_date=item.get("AddDate"),
-                text=item.get("Text", ""),
+                text=item.get("Text") or "",
                 comments=comments,
+                grade_id=as_int(behaviour_grade.get("Id"))
+                if isinstance(behaviour_grade, dict)
+                else None,
             )
         )
     return grades

@@ -53,7 +53,7 @@ Two things apply to every endpoint:
 | `Grades/Comments` | `Comments` | 📖 `[{"Id", "Text"}]`. `Grades[].Comments` is a list of **ids into this endpoint**, not embedded text. ✅ Real teacher comments on a real account resolve this way. ❓ Whether each list item is a bare id or an `{"Id": ...}` object was not captured, so accept both. |
 | `DescriptiveGrades` | `Grades` | 📖 `Subject`, `Skill`, `Category`, `Grade`, `AddDate`. Only when `Units` enables them. |
 | `PointGrades`, `TextGrades` | — | ✅ Reachable, empty on tested accounts. |
-| `BehaviourGrades/Points` | `Grades` | 📖 The formal behaviour grade ("ocena zachowania"): `Value`, `ShortName`, `Category`, `Semester`, `Comments` (ids into `BehaviourGrades/Points/Comments`). |
+| `BehaviourGrades/Points` | `Grades` | The formal behaviour grade ("ocena zachowania"). Points schools use `Value`/`ShortName`. ✅ A classic-scale grade comes with `ShortName`/`Text` empty and no `Value` (seen live 2026-10-05 on a monthly grade, "Ocena zachowania miesiąc za IX/26" in `Comments`); 📖 the grade itself is `BehaviourGrade.Id` (1 wz, 2 bdb, 3 db, 4 popr, 5 ndp, 6 ng). Also `Category`, `Semester`, `AddDate`, `Comments` (ids into `BehaviourGrades/Points/Comments`). |
 
 ### Grade values
 

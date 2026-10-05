@@ -289,12 +289,30 @@ class HomeworkAssignmentData:
     due_date: str | None
 
 
+# `BehaviourGrades/Points[].BehaviourGrade.Id` -> (short, full name), a fixed
+# scale - per szkolny-android's `LibrusApiBehaviourGrades.kt`. Found live
+# (2026-10-05): a monthly behaviour grade the Librus app shows as "bdb -
+# bardzo dobre" came through with an empty `ShortName`/`Text` and no
+# `Value`; the grade itself only lives in this id.
+BEHAVIOUR_GRADE_TYPES: dict[int, tuple[str, str]] = {
+    1: ("wz", "wzorowe"),
+    2: ("bdb", "bardzo dobre"),
+    3: ("db", "dobre"),
+    4: ("popr", "poprawne"),
+    5: ("ndp", "nieodpowiednie"),
+    6: ("ng", "naganne"),
+}
+
+
 @dataclass(slots=True)
 class BehaviourGradeData:
     """A formal "ocena zachowania" (behaviour grade) - distinct from
-    `NoteData` ("uwagi", free-text remarks). Fields CONFIRMED (2026-09-06)
-    via szkolny-eu/szkolny-android's `LibrusApiBehaviourGrades.kt`, but
-    never seen populated (empty on the test account)."""
+    `NoteData` ("uwagi", free-text remarks). Fields per
+    szkolny-eu/szkolny-android's `LibrusApiBehaviourGrades.kt`.
+
+    A school can use points (`value`, `short_name`) or the classic scale
+    (`grade_id`, see `BEHAVIOUR_GRADE_TYPES`); `display` and `name` pick
+    whichever is there."""
 
     id: int
     value: float | None
@@ -305,6 +323,27 @@ class BehaviourGradeData:
     add_date: str | None
     text: str
     comments: list[str] = field(default_factory=list)
+    # `BehaviourGrade.Id` - the classic wz..ng scale, None for points.
+    grade_id: int | None = None
+
+    @property
+    def display(self) -> str:
+        """Short form: "bdb" for the classic scale, else the short name or
+        the signed point value ("+5"); "" when nothing is set."""
+        if self.grade_id in BEHAVIOUR_GRADE_TYPES:
+            return BEHAVIOUR_GRADE_TYPES[self.grade_id][0]
+        if self.short_name:
+            return self.short_name
+        if self.value:
+            number = f"{self.value:g}"
+            return f"+{number}" if self.value > 0 else number
+        return ""
+
+    @property
+    def name(self) -> str | None:
+        """Full name of a classic-scale grade ("bardzo dobre"), else None."""
+        entry = BEHAVIOUR_GRADE_TYPES.get(self.grade_id) if self.grade_id is not None else None
+        return entry[1] if entry else None
 
 
 @dataclass(slots=True)

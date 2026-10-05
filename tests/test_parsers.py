@@ -223,3 +223,36 @@ def test_empty_payloads_are_safe() -> None:
     assert parsers.merge_timetables({}) == {}
     assert parsers.parse_lucky_number({}) is None
     assert parsers.parse_school({}) is None
+
+
+def test_behaviour_grade_classic_scale_and_points() -> None:
+    """The classic scale lives in BehaviourGrade.Id with ShortName/Text
+    empty - the shape seen live on a monthly "bdb" (2026-10-05)."""
+    grades = parsers.parse_behaviour_grades(
+        {
+            "Grades": [
+                {
+                    "Id": 1,
+                    "ShortName": "",
+                    "Text": None,
+                    "BehaviourGrade": {"Id": 2, "Url": "x"},
+                    "Category": {"Id": 9},
+                    "AddDate": "2026-10-05 08:20:25",
+                    "Comments": [{"Id": 5}],
+                },
+                {"Id": 2, "Value": 5.0, "ShortName": "", "AddDate": "2026-10-01"},
+                {"Id": 3, "Value": -2.0, "ShortName": "", "AddDate": "2026-10-02"},
+            ]
+        },
+        {5: "Ocena zachowania miesiąc za IX/26."},
+    )
+    classic, plus, minus = grades
+    assert classic.grade_id == 2
+    assert classic.display == "bdb"
+    assert classic.name == "bardzo dobre"
+    assert classic.text == ""
+    assert classic.comments == ["Ocena zachowania miesiąc za IX/26."]
+    assert plus.grade_id is None
+    assert plus.display == "+5"
+    assert plus.name is None
+    assert minus.display == "-2"

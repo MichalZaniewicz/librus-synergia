@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+### Fixed
+- **Classic behaviour grades (wz/bdb/db/popr/ndp/ng) were empty.** The
+  grade lives in `BehaviourGrades/Points[].BehaviourGrade.Id`, which wasn't
+  read - a real "bdb" came through with an empty `ShortName`/`Text`. New
+  `BehaviourGradeData.grade_id`, plus `display` ("bdb", or the points) and
+  `name` ("bardzo dobre") properties and the `BEHAVIOUR_GRADE_TYPES` table.
+
 ## 0.3.0
 
 ### Added
