@@ -1,8 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.3.4
 
 ### Added
+- Absence justifications: `Librus.justifications()`,
+  `LibrusApiClient.async_get_justifications()`, `parsers.parse_justifications()`
+  (`JustificationData` with `is_accepted` / `is_pending` / `is_rejected`),
+  `parsers.justified_dates()` and `LibrusData.justifications` (filled by
+  `fetch_all`). Confirmed live; only the "accept" status seen so far.
 - `LessonData.original` (`OriginalLessonData`: date, lesson number, hours,
   subject, teacher and classroom as originally planned - the `Org*` fields
   of a substituted lesson, confirmed live), `LessonData.substitution_note`

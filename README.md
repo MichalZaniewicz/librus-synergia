@@ -79,9 +79,11 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `student_number()` | class register number (nr w dzienniku), read from Synergia's web page |
 | `grades()`, `grade_categories()` | grades with teacher comments resolved; weights and categories |
 | `descriptive_grades()`, `behaviour_grades()` | descriptive grades; formal behaviour grade (ocena zachowania) |
+| `point_grades()` | point grades (schools grading 0-100 or in points) with each category's maximum and weight; `parsers.point_grades_percentage()` averages them |
 | `notes()`, `note_categories()` | behaviour notes (uwagi) with positive/negative/neutral `sentiment` |
 | `attendances()`, `attendance_types()` | attendance records; types with `is_presence_kind` / `is_excused_absence` |
-| `timetable(week_of=None)` | `{date: [LessonData]}` for one week, including parallel groups, cancellations and substitutions |
+| `justifications()` | absence justifications the parent submitted, with their status (`is_accepted` / `is_pending` / `is_rejected`); `parsers.justified_dates()` gives the days already covered |
+| `timetable(week_of=None)` | `{date: [LessonData]}` for one week, including parallel groups, cancellations and substitutions; a substitution's `original` says what lesson, teacher and room it replaces, `room_changed` flags a new room |
 | `agenda()`, `agenda_categories()` | terminarz: tests, quizzes, trips, parent meetings |
 | `homework()` | homework assignments (zadania domowe) |
 | `free_days()`, `parent_teacher_conferences()` | days off; conferences |

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import base64
 import re
-from datetime import date
+from datetime import date, timedelta
 from html import unescape as html_unescape
 from typing import Any
 
@@ -27,6 +27,7 @@ from .models import (
     GradeData,
     HomeworkAssignmentData,
     HomeworkEventData,
+    JustificationData,
     LessonData,
     LuckyNumberData,
     MeData,
@@ -761,6 +762,71 @@ def parse_point_grades(
             )
         )
     return grades
+
+
+def parse_justifications(payload: dict[str, Any]) -> list[JustificationData]:
+    """`Justifications` -> the parent's absence justifications, newest
+    first. CONFIRMED live 2026-10-07 (lowercase envelope, `data` list)."""
+    items = payload.get("data")
+    if not isinstance(items, list):
+        return []
+    result: list[JustificationData] = []
+    for item in items:
+        if not isinstance(item, dict) or item.get("id") is None:
+            continue
+        justification_id = as_int(item["id"])
+        if justification_id is None:
+            continue
+        lessons = [
+            (lesson.get("date"), as_int(lesson.get("number")))
+            for lesson in item.get("lessons") or []
+            if isinstance(lesson, dict)
+        ]
+        teachers = [
+            str(t["name"])
+            for t in item.get("notifiedTeachers") or []
+            if isinstance(t, dict) and t.get("name")
+        ]
+        result.append(
+            JustificationData(
+                id=justification_id,
+                status=str(item.get("justificationStatus") or ""),
+                message=str(item.get("messageFromParent") or ""),
+                posted=item.get("postDate"),
+                date_from=item.get("dateFrom"),
+                date_to=item.get("dateTo"),
+                lessons=lessons,
+                justified_absences=as_int(item.get("justifiedAbsences")) or 0,
+                has_attachment=bool(item.get("attachment")),
+                teachers=teachers,
+            )
+        )
+    result.sort(key=lambda j: j.posted or "", reverse=True)
+    return result
+
+
+def justified_dates(justifications: list[JustificationData]) -> set[str]:
+    """Every date ("YYYY-MM-DD") covered by a justification that wasn't
+    rejected - the days a parent has already sent one for."""
+    days: set[str] = set()
+    for item in justifications:
+        if item.is_rejected:
+            continue
+        for day, _number in item.lessons:
+            if day:
+                days.add(day[:10])
+        try:
+            start = date.fromisoformat((item.date_from or "")[:10])
+            end = date.fromisoformat((item.date_to or item.date_from or "")[:10])
+        except ValueError:
+            continue
+        if (end - start).days > 366:
+            continue
+        current = start
+        while current <= end:
+            days.add(current.isoformat())
+            current += timedelta(days=1)
+    return days
 
 
 def point_grades_percentage(grades: list[PointGradeData]) -> float | None:

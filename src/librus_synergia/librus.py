@@ -36,6 +36,7 @@ from .models import (
     GradeData,
     HomeworkAssignmentData,
     HomeworkEventData,
+    JustificationData,
     LessonData,
     LibrusData,
     LuckyNumberData,
@@ -452,6 +453,13 @@ class Librus:
             klass, "ClassFreeDays"
         )
 
+    async def justifications(self) -> list[JustificationData]:
+        """Absence justifications the parent submitted, newest first, with
+        their status. `parsers.justified_dates()` turns them into the days
+        already covered."""
+        payload = await self._call(self.client.async_get_justifications)
+        return parsers.parse_justifications(payload)
+
     async def parent_teacher_conferences(self) -> list[ParentTeacherConferenceData]:
         payload = await self._call(self.client.async_get_parent_teacher_conferences)
         return parsers.parse_parent_teacher_conferences(payload)
@@ -559,6 +567,7 @@ class Librus:
             behaviour,
             descriptive,
             point,
+            justifications,
             conferences,
             lessons_payload,
         ) = await asyncio.gather(
@@ -575,6 +584,7 @@ class Librus:
             optional(self.behaviour_grades(), []),
             optional(self.descriptive_grades(), []),
             optional(self.point_grades(), []),
+            optional(self.justifications(), []),
             optional(self.parent_teacher_conferences(), []),
             optional(self._call(self.client.async_get_lessons), {}),
         )
@@ -601,6 +611,7 @@ class Librus:
             behaviour_grades=behaviour,
             descriptive_grades=descriptive,
             point_grades=point,
+            justifications=justifications,
             parent_teacher_conferences=conferences,
             lesson_subjects=parsers.parse_lesson_subjects(lessons_payload),
         )

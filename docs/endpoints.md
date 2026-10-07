@@ -111,7 +111,7 @@ There is no "excused" flag. Excused absences can only be recognized by
 
 | Endpoint | Root key | Notes |
 |---|---|---|
-| `Justifications` | `data` | ✅ The absence justifications the parent submitted, with a lowercase JSON envelope unlike the rest of the API: `{"status": "OK", "message": ..., "data": [...]}`. Each item: `id` (int), `messageFromParent`, `postDate` ("YYYY-MM-DD HH:MM:SS"), `justificationStatus` (✅ `"accept"` seen; other values not seen yet), `dateFrom`, `dateTo`, `lessons` (`[{"number", "date"}]`, can be empty), `justifiedAbsences` (int), `attachment` (bool), `notifiedTeachers` (`[{"name"}]`). |
+| `Justifications` | `data` | ✅ The absence justifications the parent submitted, with a lowercase JSON envelope unlike the rest of the API: `{"status": "OK", "message": ..., "data": [...]}`. Each item: `id` (int), `messageFromParent`, `postDate` ("YYYY-MM-DD HH:MM:SS"), `justificationStatus` (✅ `"accept"` seen; other values not seen yet), `dateFrom`, `dateTo`, `lessons` (`[{"number", "date"}]`, can be empty), `justifiedAbsences` (int), `attachment` (bool), `notifiedTeachers` (`[{"name"}]`). Parsed by `parse_justifications` (`JustificationData`, newest first); `justified_dates` lists the days covered by a justification that wasn't rejected. |
 
 ✅ Attendance can be **missing for whole subjects**. On one real account a
 subject taught twice a week had only 2 records after a month, both

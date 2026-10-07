@@ -467,3 +467,63 @@ def test_room_change_needs_both_rooms() -> None:
     lesson = parsers.parse_lesson({"IsSubstitutionClass": True, "OrgClassroom": {"Id": "5"}})
     assert lesson.original is not None
     assert lesson.room_changed is False
+
+
+JUSTIFICATIONS = {
+    "status": "OK",
+    "message": "Pobrano listę usprawiedliwień",
+    "data": [
+        {
+            "id": 3,
+            "messageFromParent": "Proszę o usprawiedliwienie.",
+            "postDate": "2026-09-06 22:17:53",
+            "justificationStatus": "accept",
+            "lessons": [{"number": 8, "date": "2026-09-04"}],
+            "attachment": False,
+            "dateFrom": "2026-09-04",
+            "dateTo": "2026-09-04",
+            "justifiedAbsences": 1,
+            "notifiedTeachers": [{"name": "Anna Nowak"}],
+        },
+        {
+            "id": 5,
+            "messageFromParent": "Choroba.",
+            "postDate": "2026-09-15 09:23:45",
+            "justificationStatus": "new",
+            "lessons": [],
+            "attachment": True,
+            "dateFrom": "2026-09-14",
+            "dateTo": "2026-09-16",
+            "justifiedAbsences": 0,
+            "notifiedTeachers": [],
+        },
+        {
+            "id": 7,
+            "messageFromParent": "x",
+            "postDate": "2026-09-20 08:00:00",
+            "justificationStatus": "rejected",
+            "lessons": [],
+            "dateFrom": "2026-09-19",
+            "dateTo": "2026-09-19",
+        },
+        {"messageFromParent": "no id"},
+    ],
+}
+
+
+def test_parse_justifications_newest_first_with_status() -> None:
+    items = parsers.parse_justifications(JUSTIFICATIONS)
+
+    assert [j.id for j in items] == [7, 5, 3]
+    rejected, pending, accepted = items
+    assert accepted.is_accepted and not accepted.is_pending
+    assert accepted.lessons == [("2026-09-04", 8)]
+    assert accepted.teachers == ["Anna Nowak"]
+    assert accepted.justified_absences == 1
+    assert pending.is_pending and pending.has_attachment
+    assert rejected.is_rejected
+
+
+def test_justified_dates_skip_rejected() -> None:
+    days = parsers.justified_dates(parsers.parse_justifications(JUSTIFICATIONS))
+    assert days == {"2026-09-04", "2026-09-14", "2026-09-15", "2026-09-16"}

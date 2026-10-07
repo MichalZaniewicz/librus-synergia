@@ -187,6 +187,9 @@ ENDPOINT_UNITS = "Units"
 # already supports. PointGrades is confirmed NOT enabled for this account's
 # school (see Units above) - kept here for completeness/other schools.
 ENDPOINT_POINT_GRADES = "PointGrades"
+# Absence justifications submitted by the parent (CONFIRMED live 2026-10-07):
+# a lowercase `{"status", "message", "data": [...]}` envelope.
+ENDPOINT_JUSTIFICATIONS = "Justifications"
 # Categories of point grades - carry the maximum (ValueTo), weight and
 # whether they count towards the average (szkolny-android's
 # LibrusApiPointGradeCategories.kt).

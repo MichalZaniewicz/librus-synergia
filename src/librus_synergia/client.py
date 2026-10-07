@@ -40,6 +40,7 @@ from .const import (
     ENDPOINT_HOMEWORK_ASSIGNMENTS,
     ENDPOINT_HOMEWORK_CATEGORIES,
     ENDPOINT_HOMEWORKS,
+    ENDPOINT_JUSTIFICATIONS,
     ENDPOINT_LESSONS,
     ENDPOINT_LUCKY_NUMBERS,
     ENDPOINT_ME,
@@ -560,6 +561,11 @@ class LibrusApiClient:
         """Point grades (e.g. 17/20, or a 0-100 scale), for schools with
         Units' GradesSettings.PointGradesEnabled. See `parse_point_grades`."""
         return await self._async_request(ENDPOINT_POINT_GRADES)
+
+    async def async_get_justifications(self) -> dict[str, Any]:
+        """Absence justifications submitted by the parent, with their status.
+        See `parse_justifications`."""
+        return await self._async_request(ENDPOINT_JUSTIFICATIONS)
 
     async def async_get_point_grade_categories(self) -> dict[str, Any]:
         """Point-grade categories: maximum points, weight, counts to the

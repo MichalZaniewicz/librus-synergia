@@ -399,6 +399,36 @@ class DescriptiveGradeData:
 
 
 @dataclass(slots=True)
+class JustificationData:
+    """An absence justification submitted by the parent (`Justifications`).
+    CONFIRMED live 2026-10-07; `status` "accept" seen, other values not yet
+    (see `is_accepted` / `is_rejected`)."""
+
+    id: int
+    status: str
+    message: str
+    posted: str | None
+    date_from: str | None
+    date_to: str | None
+    lessons: list[tuple[str | None, int | None]]
+    justified_absences: int
+    has_attachment: bool
+    teachers: list[str]
+
+    @property
+    def is_accepted(self) -> bool:
+        return self.status.lower().startswith("accept")
+
+    @property
+    def is_rejected(self) -> bool:
+        return self.status.lower().startswith(("reject", "refus", "deny", "denied", "declin"))
+
+    @property
+    def is_pending(self) -> bool:
+        return not (self.is_accepted or self.is_rejected)
+
+
+@dataclass(slots=True)
 class PointGradeCategoryData:
     """A point-grade category (`PointGrades/Categories`). Fields per
     szkolny-android's `LibrusApiPointGradeCategories.kt` - not seen live."""
@@ -489,6 +519,7 @@ class LibrusData:
     behaviour_grades: list[BehaviourGradeData] = field(default_factory=list)
     descriptive_grades: list[DescriptiveGradeData] = field(default_factory=list)
     point_grades: list[PointGradeData] = field(default_factory=list)
+    justifications: list[JustificationData] = field(default_factory=list)
     parent_teacher_conferences: list[ParentTeacherConferenceData] = field(default_factory=list)
     # Full message CONTENT for a couple of the most actionable secondary
     # mailboxes (unlike unread_messages_by_mailbox above, which only ever
