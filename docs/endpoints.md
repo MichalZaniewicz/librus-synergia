@@ -50,7 +50,7 @@ Two things apply to every endpoint:
 
 | Endpoint | Root key | Notes |
 |---|---|---|
-| `Grades` | `Grades` | ✅ `Grade` (string), `Subject.Id`, `Category.Id`, `Semester`, `AddDate`, `IsSemesterProposition`, `IsFinalProposition`, `IsSemester`, `IsFinal`, `Comments`. ✅ `AddedBy.Id` is the teacher who added the grade (a `Users` id): on a real account all 15 grades resolved to the subject's own teacher. 📖 `Improvement.Id` on a correction ("poprawa") points at the earlier grade it improves; the earlier grade stays in the list. |
+| `Grades` | `Grades` | ✅ `Grade` (string), `Subject.Id`, `Category.Id`, `Semester`, `AddDate`, `IsSemesterProposition`, `IsFinalProposition`, `IsSemester`, `IsFinal`, `Comments` (❓ the four semester/final flags have only ever been `false`: no proposed or final grade issued yet). ✅ `AddedBy.Id` is the teacher who added the grade (a `Users` id): on a real account all 15 grades resolved to the subject's own teacher. 📖 `Improvement.Id` on a correction ("poprawa") points at the earlier grade it improves; the earlier grade stays in the list. |
 | `Grades/Comments` | `Comments` | 📖 `[{"Id", "Text"}]`. `Grades[].Comments` is a list of **ids into this endpoint**, not embedded text. ✅ Real teacher comments on a real account resolve this way. ❓ Whether each list item is a bare id or an `{"Id": ...}` object was not captured, so accept both. |
 | `DescriptiveGrades` | `Grades` | 📖 `Subject`, `Skill`, `Category`, `Grade`, `AddDate`. Only when `Units` enables them. |
 | `PointGrades`, `TextGrades` | — | ✅ Reachable, empty on tested accounts. |
@@ -160,5 +160,7 @@ GET Timetables?weekStart=YYYY-MM-DD      (a Monday)
 | `SchoolNotices` | `SchoolNotices` | ✅ `Subject`, `Content` (full text, not truncated), `StartDate`, `EndDate`, `CreationDate`, `WasRead`. ✅ `Id` is a **string**. |
 | `LuckyNumbers` | `LuckyNumber` | ✅ `{"LuckyNumber": {"LuckyNumber": 13, "LuckyNumberDay": "2026-09-08"}}`. ✅ The number for the **next** school day can appear a day early, so check `LuckyNumberDay`. |
 
-The student's own class-register number is **not exposed anywhere** in
-the API. To answer "is it my number?", ask the user for it.
+The student's own class-register number is **not in the JSON API**. ✅ It
+is on Synergia's `informacja` web page, which opens with the same session
+(see [Identity and school](#identity-and-school)); `Librus.student_number()`
+reads it, so "is it my number?" needs no input from the user.
