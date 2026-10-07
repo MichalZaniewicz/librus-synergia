@@ -33,6 +33,8 @@ from .models import (
     MessageData,
     NoteData,
     ParentTeacherConferenceData,
+    PointGradeCategoryData,
+    PointGradeData,
     SchoolData,
     SchoolNoticeData,
 )
@@ -72,9 +74,15 @@ def parse_grade_value(value: str) -> float | None:
         modifier = -0.25
         value = value[:-1]
     try:
-        return float(value.replace(",", ".")) + modifier
+        number = float(value.replace(",", ".")) + modifier
     except ValueError:
         return None
+    # Only the 1-6 scale is a grade here. A school grading in points or
+    # percent (e.g. "85") would otherwise drag every average far off -
+    # those belong in `PointGrades` (see `parse_point_grades`).
+    if not 0 < number <= 6.5:
+        return None
+    return number
 
 
 def parse_me(payload: dict[str, Any]) -> MeData:
@@ -649,6 +657,128 @@ def parse_descriptive_grades(payload: dict[str, Any]) -> list[DescriptiveGradeDa
             )
         )
     return grades
+
+
+def _to_float(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).replace(",", ".").strip())
+    except ValueError:
+        return None
+
+
+def parse_point_grade_categories(payload: dict[str, Any]) -> dict[int, PointGradeCategoryData]:
+    """`PointGrades/Categories` -> {id: category}. Fields per
+    szkolny-android's `LibrusApiPointGradeCategories.kt` (`Name`, `Weight`,
+    `CountToTheAverage`, `ValueFrom`, `ValueTo`); not seen live."""
+    items = payload.get("Categories")
+    if not isinstance(items, list):
+        return {}
+    categories: dict[int, PointGradeCategoryData] = {}
+    for item in items:
+        if not isinstance(item, dict) or item.get("Id") is None:
+            continue
+        category_id = as_int(item["Id"])
+        if category_id is None:
+            continue
+        counts = item.get("CountToTheAverage")
+        categories[category_id] = PointGradeCategoryData(
+            id=category_id,
+            name=item.get("Name") or "",
+            weight=_to_float(item.get("Weight")),
+            counts_to_average=True if counts is None else bool(counts),
+            value_from=_to_float(item.get("ValueFrom")),
+            value_to=_to_float(item.get("ValueTo")),
+        )
+    return categories
+
+
+def parse_point_grades(
+    payload: dict[str, Any], categories: dict[int, PointGradeCategoryData] | None = None
+) -> list[PointGradeData]:
+    """`PointGrades` -> point grades, with the maximum, weight and category
+    name taken from `categories` (`parse_point_grade_categories`). Fields per
+    szkolny-android's `LibrusApiPointGrades.kt` (`Grade`, `GradeValue`,
+    `Category`, `Subject`, `Semester`, `AddDate`, `AddedBy`); not seen
+    live. `GradeValue` is the points; `Grade` the text shown in Synergia."""
+    items = payload.get("Grades")
+    if not isinstance(items, list):
+        return []
+    categories = categories or {}
+    grades: list[PointGradeData] = []
+    for item in items:
+        if not isinstance(item, dict) or item.get("Id") is None:
+            continue
+        grade_id = as_int(item["Id"])
+        if grade_id is None:
+            continue
+        category_id = as_int((item.get("Category") or {}).get("Id"))
+        category = categories.get(category_id) if category_id is not None else None
+        value = str(item.get("Grade") or "")
+        points = _to_float(item.get("GradeValue"))
+        if points is None:
+            points = _to_float(value)
+        grades.append(
+            PointGradeData(
+                id=grade_id,
+                subject_id=as_int((item.get("Subject") or {}).get("Id")),
+                value=value,
+                points=points,
+                max_points=category.value_to if category else None,
+                category_id=category_id,
+                category=category.name if category else None,
+                weight=category.weight if category else None,
+                counts_to_average=category.counts_to_average if category else True,
+                semester=as_int(item.get("Semester")),
+                add_date=item.get("AddDate"),
+                teacher_id=as_int((item.get("AddedBy") or {}).get("Id")),
+            )
+        )
+    return grades
+
+
+def point_grades_percentage(grades: list[PointGradeData]) -> float | None:
+    """Points earned as a percentage of points possible - weighted by the
+    category weight (1 when unknown), counting only grades whose category
+    counts towards the average and whose maximum is known. The usual way a
+    point-graded school averages; None when nothing counts."""
+    earned = possible = 0.0
+    for grade in grades:
+        if not grade.counts_to_average or grade.points is None or not grade.max_points:
+            continue
+        weight = grade.weight if grade.weight else 1.0
+        earned += grade.points * weight
+        possible += grade.max_points * weight
+    if not possible:
+        return None
+    return round(100 * earned / possible, 1)
+
+
+def point_grades_enabled(units_payload: dict[str, Any]) -> bool | None:
+    """Whether the school grades in points, from `Units`
+    (`GradesSettings.PointGradesEnabled`). Searched anywhere in the payload,
+    since a school can list several units: True if any unit has it on, False
+    if every unit that says has it off, None if no unit says."""
+    found: list[bool] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "PointGradesEnabled" and isinstance(value, bool):
+                    found.append(value)
+                else:
+                    walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(units_payload)
+    if not found:
+        return None
+    return any(found)
 
 
 def parse_parent_teacher_conferences(payload: dict[str, Any]) -> list[ParentTeacherConferenceData]:

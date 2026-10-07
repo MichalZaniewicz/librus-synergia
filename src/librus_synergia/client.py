@@ -46,6 +46,7 @@ from .const import (
     ENDPOINT_NOTE_CATEGORIES,
     ENDPOINT_NOTES,
     ENDPOINT_PARENT_TEACHER_CONFERENCES,
+    ENDPOINT_POINT_GRADE_CATEGORIES,
     ENDPOINT_POINT_GRADES,
     ENDPOINT_SCHOOL_FREE_DAYS,
     ENDPOINT_SCHOOL_NOTICES,
@@ -556,9 +557,14 @@ class LibrusApiClient:
         return await self._async_request(ENDPOINT_UNITS)
 
     async def async_get_point_grades(self) -> dict[str, Any]:
-        """CONFIRMED disabled for this account's school (see Units'
-        GradesSettings.PointGradesEnabled) - not wired into any entity."""
+        """Point grades (e.g. 17/20, or a 0-100 scale), for schools with
+        Units' GradesSettings.PointGradesEnabled. See `parse_point_grades`."""
         return await self._async_request(ENDPOINT_POINT_GRADES)
+
+    async def async_get_point_grade_categories(self) -> dict[str, Any]:
+        """Point-grade categories: maximum points, weight, counts to the
+        average. See `parse_point_grade_categories`."""
+        return await self._async_request(ENDPOINT_POINT_GRADE_CATEGORIES)
 
     async def async_get_descriptive_grades(self) -> dict[str, Any]:
         """CONFIRMED enabled for this account's school (see Units'

@@ -187,6 +187,10 @@ ENDPOINT_UNITS = "Units"
 # already supports. PointGrades is confirmed NOT enabled for this account's
 # school (see Units above) - kept here for completeness/other schools.
 ENDPOINT_POINT_GRADES = "PointGrades"
+# Categories of point grades - carry the maximum (ValueTo), weight and
+# whether they count towards the average (szkolny-android's
+# LibrusApiPointGradeCategories.kt).
+ENDPOINT_POINT_GRADE_CATEGORIES = "PointGrades/Categories"
 ENDPOINT_DESCRIPTIVE_GRADES = "DescriptiveGrades"
 ENDPOINT_TEXT_GRADES = "TextGrades"
 

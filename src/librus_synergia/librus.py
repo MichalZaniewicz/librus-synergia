@@ -43,6 +43,7 @@ from .models import (
     MessageData,
     NoteData,
     ParentTeacherConferenceData,
+    PointGradeData,
     SchoolData,
     SchoolNoticeData,
 )
@@ -354,6 +355,16 @@ class Librus:
         payload = await self._call(self.client.async_get_descriptive_grades)
         return parsers.parse_descriptive_grades(payload)
 
+    async def point_grades(self) -> list[PointGradeData]:
+        """Point grades (schools grading in points or percent), with each
+        category's maximum and weight. Average them with
+        `parsers.point_grades_percentage`."""
+        grades, categories = await asyncio.gather(
+            self._call(self.client.async_get_point_grades),
+            self._call(self.client.async_get_point_grade_categories),
+        )
+        return parsers.parse_point_grades(grades, parsers.parse_point_grade_categories(categories))
+
     async def behaviour_grades(self) -> list[BehaviourGradeData]:
         points, comments = await asyncio.gather(
             self._call(self.client.async_get_behaviour_grade_points),
@@ -547,6 +558,7 @@ class Librus:
             homework,
             behaviour,
             descriptive,
+            point,
             conferences,
             lessons_payload,
         ) = await asyncio.gather(
@@ -562,6 +574,7 @@ class Librus:
             optional(self.homework(), []),
             optional(self.behaviour_grades(), []),
             optional(self.descriptive_grades(), []),
+            optional(self.point_grades(), []),
             optional(self.parent_teacher_conferences(), []),
             optional(self._call(self.client.async_get_lessons), {}),
         )
@@ -587,6 +600,7 @@ class Librus:
             homework_assignments=homework,
             behaviour_grades=behaviour,
             descriptive_grades=descriptive,
+            point_grades=point,
             parent_teacher_conferences=conferences,
             lesson_subjects=parsers.parse_lesson_subjects(lessons_payload),
         )

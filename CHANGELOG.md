@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.3
+
+### Added
+- Point grades: `Librus.point_grades()`, `LibrusApiClient.
+  async_get_point_grade_categories()`, `parsers.parse_point_grades()` /
+  `parse_point_grade_categories()` / `point_grades_percentage()` (weighted
+  earned/possible), `PointGradeData` (with `percentage`) and
+  `LibrusData.point_grades` (filled by `fetch_all`). Field names per
+  szkolny-android's reference parser - not yet seen in a live payload.
+- `parsers.point_grades_enabled(units_payload)`: whether the school grades
+  in points (`Units` -> `GradesSettings.PointGradesEnabled`).
+
+### Fixed
+- `parse_grade_value` only accepts the 1-6 scale: a number outside it
+  (a point or percent grade such as "85") is no longer counted as a grade
+  of 85 in averages.
+
 ## 0.3.2
 
 ### Added

@@ -28,6 +28,10 @@ def _b64(text: str) -> str:
         ("+", None),
         ("-", None),
         ("", None),
+        ("6+", 6.5),
+        ("0", None),
+        ("85", None),
+        ("17,5", None),
     ],
 )
 def test_parse_grade_value(raw: str, expected: float | None) -> None:
@@ -296,3 +300,118 @@ def test_student_number_missing_or_blank() -> None:
     assert parsers.parse_student_number("<html><body>Brak</body></html>") is None
     blank = STUDENT_INFO_PAGE.replace("25", "&nbsp;")
     assert parsers.parse_student_number(blank) is None
+
+
+POINT_CATEGORIES = {
+    "Categories": [
+        {
+            "Id": 1,
+            "Name": "Sprawdzian",
+            "Weight": 3,
+            "CountToTheAverage": True,
+            "ValueFrom": 0,
+            "ValueTo": 20,
+        },
+        {
+            "Id": 2,
+            "Name": "Kartkówka",
+            "Weight": 1,
+            "CountToTheAverage": True,
+            "ValueFrom": 0,
+            "ValueTo": 10,
+        },
+        {
+            "Id": 3,
+            "Name": "Dodatkowe",
+            "Weight": 1,
+            "CountToTheAverage": False,
+            "ValueFrom": 0,
+            "ValueTo": 5,
+        },
+    ]
+}
+POINT_GRADES = {
+    "Grades": [
+        {
+            "Id": 11,
+            "Grade": "17",
+            "GradeValue": 17,
+            "Category": {"Id": 1},
+            "Subject": {"Id": 100},
+            "Semester": 1,
+            "AddDate": "2026-10-01 10:00:00",
+            "AddedBy": {"Id": 7},
+        },
+        {
+            "Id": 12,
+            "Grade": "5,5",
+            "Category": {"Id": 2},
+            "Subject": {"Id": 100},
+            "Semester": 1,
+            "AddDate": "2026-10-02 10:00:00",
+        },
+        {
+            "Id": 13,
+            "Grade": "5",
+            "GradeValue": 5,
+            "Category": {"Id": 3},
+            "Subject": {"Id": 100},
+            "Semester": 1,
+            "AddDate": "2026-10-03 10:00:00",
+        },
+        {"Grade": "no id"},
+    ]
+}
+
+
+def test_parse_point_grades_resolves_categories() -> None:
+    categories = parsers.parse_point_grade_categories(POINT_CATEGORIES)
+    grades = parsers.parse_point_grades(POINT_GRADES, categories)
+
+    assert [g.id for g in grades] == [11, 12, 13]
+    first, second, third = grades
+    assert (first.points, first.max_points, first.weight) == (17.0, 20.0, 3.0)
+    assert first.category == "Sprawdzian"
+    assert first.teacher_id == 7
+    assert first.percentage == 85.0
+    # No GradeValue: the points come from the text, decimal comma included.
+    assert second.points == 5.5
+    assert third.counts_to_average is False
+
+
+def test_point_grades_percentage_is_weighted() -> None:
+    grades = parsers.parse_point_grades(
+        POINT_GRADES, parsers.parse_point_grade_categories(POINT_CATEGORIES)
+    )
+    # (17*3 + 5.5*1) / (20*3 + 10*1); the "Dodatkowe" grade doesn't count.
+    assert parsers.point_grades_percentage(grades) == round(100 * 56.5 / 70, 1)
+    assert parsers.point_grades_percentage([]) is None
+
+
+def test_point_grades_without_categories_have_no_maximum() -> None:
+    grades = parsers.parse_point_grades(POINT_GRADES)
+    assert grades[0].max_points is None
+    assert grades[0].percentage is None
+    assert parsers.point_grades_percentage(grades) is None
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"Units": [{"GradesSettings": {"PointGradesEnabled": False}}]}, False),
+        (
+            {
+                "Units": [
+                    {"GradesSettings": {"PointGradesEnabled": False}},
+                    {"GradesSettings": {"PointGradesEnabled": True}},
+                ]
+            },
+            True,
+        ),
+        ({"Unit": {"GradesSettings": {"PointGradesEnabled": True}}}, True),
+        ({"Units": []}, None),
+        ({}, None),
+    ],
+)
+def test_point_grades_enabled(payload: dict, expected: bool | None) -> None:
+    assert parsers.point_grades_enabled(payload) is expected

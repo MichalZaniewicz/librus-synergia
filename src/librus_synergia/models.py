@@ -369,6 +369,48 @@ class DescriptiveGradeData:
 
 
 @dataclass(slots=True)
+class PointGradeCategoryData:
+    """A point-grade category (`PointGrades/Categories`). Fields per
+    szkolny-android's `LibrusApiPointGradeCategories.kt` - not seen live."""
+
+    id: int
+    name: str
+    weight: float | None
+    counts_to_average: bool
+    value_from: float | None
+    value_to: float | None
+
+
+@dataclass(slots=True)
+class PointGradeData:
+    """A point grade (`PointGrades`): `points` out of `max_points` (the
+    category's ValueTo). Schools grading on a 0-100 scale use these instead
+    of the 1-6 `Grades`. Fields per szkolny-android's
+    `LibrusApiPointGrades.kt` - not seen live (the test account's school has
+    PointGradesEnabled=false)."""
+
+    id: int
+    subject_id: int | None
+    value: str
+    points: float | None
+    max_points: float | None
+    category_id: int | None
+    category: str | None
+    weight: float | None
+    counts_to_average: bool
+    semester: int | None
+    add_date: str | None
+    teacher_id: int | None = None
+
+    @property
+    def percentage(self) -> float | None:
+        """Points as a percentage of the maximum, when both are known."""
+        if self.points is None or not self.max_points:
+            return None
+        return round(100 * self.points / self.max_points, 1)
+
+
+@dataclass(slots=True)
 class ParentTeacherConferenceData:
     """A scheduled parent-teacher meeting ("wywiadówka"/"zebranie").
     Fields CONFIRMED (2026-09-06) via szkolny-eu/szkolny-android's
@@ -416,6 +458,7 @@ class LibrusData:
     homework_assignments: list[HomeworkAssignmentData] = field(default_factory=list)
     behaviour_grades: list[BehaviourGradeData] = field(default_factory=list)
     descriptive_grades: list[DescriptiveGradeData] = field(default_factory=list)
+    point_grades: list[PointGradeData] = field(default_factory=list)
     parent_teacher_conferences: list[ParentTeacherConferenceData] = field(default_factory=list)
     # Full message CONTENT for a couple of the most actionable secondary
     # mailboxes (unlike unread_messages_by_mailbox above, which only ever
