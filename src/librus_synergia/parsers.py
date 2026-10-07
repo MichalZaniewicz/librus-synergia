@@ -991,3 +991,27 @@ def parse_message(payload: dict[str, Any], mailbox: str, message_id: str) -> Ful
         read_date=data.get("readDate"),
         attachments=attachments,
     )
+
+
+_INFO_ROW_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S | re.I)
+_INFO_CELL_RE = re.compile(r"<(th|td)[^>]*>(.*?)</\1>", re.S | re.I)
+
+
+def parse_student_number(page: str) -> int | None:
+    """The class register number ("Nr w dzienniku") from Synergia's
+    "Informacje" web page (`LibrusApiClient.async_get_student_info_page`).
+
+    The page is a `<th>label</th><td>value</td>` table; the row is found by
+    its label rather than by position (szkolny-android uses the 3rd row,
+    the live page has an empty header row first). None when the row is
+    missing or not a number."""
+    for row in _INFO_ROW_RE.findall(page):
+        cells = {
+            tag.lower(): html_unescape(_ANY_TAG_RE.sub(" ", body)).strip()
+            for tag, body in _INFO_CELL_RE.findall(row)
+        }
+        label = " ".join(cells.get("th", "").split()).lower()
+        if label.startswith("nr w dzienniku"):
+            value = cells.get("td", "").split()
+            return int(value[0]) if value and value[0].isdigit() else None
+    return None

@@ -271,3 +271,28 @@ def test_behaviour_grade_classic_scale_and_points() -> None:
     assert plus.display == "+5"
     assert plus.name is None
     assert minus.display == "-2"
+
+
+STUDENT_INFO_PAGE = """
+<table class="decorated form">
+  <thead><tr><td colspan="2">Uczeń</td></tr></thead>
+  <tbody>
+    <tr><th class="big">Imi&#281; i nazwisko ucznia</th><td>Jan Kowalski</td></tr>
+    <tr><th class="big">Klasa</th><td>7 d</td></tr>
+    <tr><th class="big">Nr w dzienniku</th><td>
+        25
+    </td></tr>
+    <tr><th class="big">Wychowawca</th><td>Anna Nowak</td></tr>
+  </tbody>
+</table>
+"""
+
+
+def test_student_number_from_info_page() -> None:
+    assert parsers.parse_student_number(STUDENT_INFO_PAGE) == 25
+
+
+def test_student_number_missing_or_blank() -> None:
+    assert parsers.parse_student_number("<html><body>Brak</body></html>") is None
+    blank = STUDENT_INFO_PAGE.replace("25", "&nbsp;")
+    assert parsers.parse_student_number(blank) is None

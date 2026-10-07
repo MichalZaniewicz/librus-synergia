@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
 
 ### Added
+- `Librus.student_number()` / `LibrusApiClient.async_get_student_info_page()`
+  + `parsers.parse_student_number()`: the class register number ("Nr w
+  dzienniku"). The JSON API doesn't carry it; it comes from Synergia's
+  `informacja` web page, which opens with the same session (confirmed live).
 - `GradeData.improves_id`: for a correction ("poprawa"), the id of the
   earlier grade it improves (`Grades[].Improvement.Id`, per
   szkolny-android's reference parser - not yet seen in a live payload).

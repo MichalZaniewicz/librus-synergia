@@ -67,6 +67,7 @@ from .const import (
     SESSION_EXPIRY_SAFETY_MARGIN_SECONDS,
     SYNERGIA_DOMAIN,
     SYNERGIA_PORTAL_LOGIN_URL,
+    SYNERGIA_STUDENT_INFO_URL,
     USER_AGENT,
 )
 from .exceptions import (
@@ -585,6 +586,33 @@ class LibrusApiClient:
     # only on a user's own deliberate action (clicking a message in a
     # card), same as opening a message in the real Librus app.
     # ------------------------------------------------------------------
+
+    async def async_get_student_info_page(self) -> str:
+        """HTML of Synergia's "Informacje" web page - see
+        `parsers.parse_student_number`. A redirect (to the login page) or a
+        401/403 means the session is gone, same as on an API endpoint."""
+        try:
+            async with self._session.get(
+                SYNERGIA_STUDENT_INFO_URL,
+                headers={"User-Agent": USER_AGENT},
+                allow_redirects=False,
+            ) as response:
+                if response.status in (301, 302, 303, 307, 401, 403):
+                    raise LibrusSessionExpiredError(
+                        f"Session rejected on {SYNERGIA_STUDENT_INFO_URL} (HTTP {response.status}).",
+                        status_code=response.status,
+                    )
+                if response.status == 503:
+                    raise LibrusServerMaintenanceError(
+                        f"Librus is under maintenance (HTTP 503) on {SYNERGIA_STUDENT_INFO_URL}."
+                    )
+                if response.status != 200:
+                    raise LibrusUnexpectedResponseError(
+                        f"HTTP {response.status} from {SYNERGIA_STUDENT_INFO_URL}."
+                    )
+                return await response.text()
+        except aiohttp.ClientError as err:
+            raise LibrusConnectionError(str(err)) from err
 
     async def async_bootstrap_messages(self) -> bool:
         """One-time-per-login bootstrap for the Wiadomości subsystem.

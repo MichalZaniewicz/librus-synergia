@@ -29,6 +29,7 @@ Two things apply to every endpoint:
 | `Classes` | `Class` | ✅ `Number`+`Symbol` (e.g. 7+"d"), `ClassTutor.Id`, `BeginSchoolYear`, `EndFirstSemester`, `EndSchoolYear`. |
 | `Units` | — | ✅ School configuration: `GradesSettings.{Standard,Point,Descriptive}GradesEnabled`, bell schedule (`LessonsRange`), behaviour-points settings. |
 | `VirtualClasses` | `VirtualClasses` | ✅ Reachable, empty on tested accounts. |
+| *web page* `synergia.librus.pl/informacja` | — | ✅ Not part of the API: an HTML page. Its `<th>Nr w dzienniku</th><td>25</td>` row is the **class register number**, which no API endpoint carries. Opens with the same cookie session as the API (confirmed live 2026-10-07; a dead session redirects to the login page). Parsed by `parse_student_number`. |
 
 ## Lookups (cache ~24 h)
 

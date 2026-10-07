@@ -28,6 +28,11 @@ SYNERGIA_DOMAIN = "synergia.librus.pl"
 API_DOMAIN = "api.librus.pl"
 
 SYNERGIA_PORTAL_LOGIN_URL = "https://synergia.librus.pl/loguj/portalRodzina"
+# Synergia's own web page (HTML, not the JSON API) with the student's
+# details - the only place the class register number ("Nr w dzienniku")
+# is shown. Confirmed live (2026-10-07) to open with the same cookie
+# session the API uses; szkolny-android reads it too (LibrusSynergiaInfo.kt).
+SYNERGIA_STUDENT_INFO_URL = "https://synergia.librus.pl/informacja"
 API_OAUTH_AUTHORIZATION_URL = f"https://api.librus.pl/OAuth/Authorization?client_id={CLIENT_ID}"
 API_OAUTH_AUTHORIZATION_WITH_SCOPE_URL = (
     f"{API_OAUTH_AUTHORIZATION_URL}&response_type=code&scope=mydata"

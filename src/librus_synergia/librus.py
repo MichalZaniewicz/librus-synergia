@@ -186,6 +186,13 @@ class Librus:
     async def me(self) -> MeData:
         return parsers.parse_me(await self._call(self.client.async_get_me))
 
+    async def student_number(self) -> int | None:
+        """Class register number ("Nr w dzienniku"), read from Synergia's
+        web page - the JSON API doesn't carry it."""
+        return parsers.parse_student_number(
+            await self._call(self.client.async_get_student_info_page)
+        )
+
     async def school(self) -> SchoolData | None:
         return parsers.parse_school(await self._call(self.client.async_get_schools))
 

@@ -12,9 +12,11 @@ from librus_synergia.const import (
     MESSAGES_BASE_URL,
     MESSAGES_BOOTSTRAP_URL,
     SYNERGIA_PORTAL_LOGIN_URL,
+    SYNERGIA_STUDENT_INFO_URL,
 )
 
 from .helpers import MockedSession, mock_successful_login
+from .test_parsers import STUDENT_INFO_PAGE
 
 GRADES = {"Grades": [{"Id": 1, "Grade": "5+", "Subject": {"Id": 9}, "Comments": [{"Id": 3}]}]}
 COMMENTS = {"Comments": [{"Id": 3, "Text": "Świetnie"}]}
@@ -163,3 +165,27 @@ async def test_forbidden_timetable_without_kindergarten_is_empty() -> None:
             assert await librus.timetable(date(2026, 9, 8)) == {}
             # Discovery ran once, not on every call.
             assert mocked.get_calls[f"{DATA_BASE_URL}/Auth/TokenInfo"] == 1
+
+
+async def test_student_number_from_web_page() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(SYNERGIA_STUDENT_INFO_URL, text_data=STUDENT_INFO_PAGE)
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.student_number() == 25
+
+
+async def test_student_number_redirect_relogs_in() -> None:
+    """A redirect to the login page is a dead session: log in again once."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get_sequence(
+                SYNERGIA_STUDENT_INFO_URL,
+                {"status": 302, "text_data": ""},
+                {"text_data": STUDENT_INFO_PAGE},
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.student_number() == 25
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 2

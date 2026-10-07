@@ -76,6 +76,7 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | Method | Returns |
 |---|---|
 | `me()` | the student (`Me.User`), not the parent login |
+| `student_number()` | class register number (nr w dzienniku), read from Synergia's web page |
 | `grades()`, `grade_categories()` | grades with teacher comments resolved; weights and categories |
 | `descriptive_grades()`, `behaviour_grades()` | descriptive grades; formal behaviour grade (ocena zachowania) |
 | `notes()`, `note_categories()` | behaviour notes (uwagi) with positive/negative/neutral `sentiment` |
