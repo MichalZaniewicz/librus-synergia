@@ -56,6 +56,8 @@ Two things apply to every endpoint:
 | `PointGrades` | `Grades` | ✅ Reachable, empty on tested accounts (their school has `PointGradesEnabled: false`). 📖 `Grade` (the text shown), `GradeValue` (the points), `Category.Id`, `Subject.Id`, `Semester`, `AddDate`, `AddedBy.Id`. The maximum lives on the category. Parsed by `parse_point_grades`; `point_grades_percentage` gives the weighted earned/possible percentage. |
 | `PointGrades/Categories` | `Categories` | 📖 `Name`, `Weight`, `CountToTheAverage`, `ValueFrom`, `ValueTo` (the maximum points). |
 | `TextGrades` | — | ✅ Reachable, empty on tested accounts. |
+| `Grades/Averages`, `PointGrades/Averages` | — | ✅ Reachable, but on the tested school both answer only `{"Status": "Disabled"}` - the school has its averages switched off. ❓ The shape when enabled is unknown. |
+| `BehaviourGrades/SystemProposal` | — | ✅ HTTP 403 for a parent account on the tested school (a proposed behaviour grade, per third-party OpenAPI notes). |
 | `BehaviourGrades/Points` | `Grades` | The formal behaviour grade ("ocena zachowania"). Points schools use `Value`/`ShortName`. ✅ A classic-scale grade comes with `ShortName`/`Text` empty and no `Value` (seen live 2026-10-05 on a monthly grade, "Ocena zachowania miesiąc za IX/26" in `Comments`); 📖 the grade itself is `BehaviourGrade.Id` (1 wz, 2 bdb, 3 db, 4 popr, 5 ndp, 6 ng). Also `Category`, `Semester`, `AddDate`, `Comments` (ids into `BehaviourGrades/Points/Comments`). |
 
 ### Grade values
@@ -107,6 +109,10 @@ always read `IsPresenceKind` from this endpoint.
 There is no "excused" flag. Excused absences can only be recognized by
 `uspr.` in the type name.
 
+| Endpoint | Root key | Notes |
+|---|---|---|
+| `Justifications` | `data` | ✅ The absence justifications the parent submitted, with a lowercase JSON envelope unlike the rest of the API: `{"status": "OK", "message": ..., "data": [...]}`. Each item: `id` (int), `messageFromParent`, `postDate` ("YYYY-MM-DD HH:MM:SS"), `justificationStatus` (✅ `"accept"` seen; other values not seen yet), `dateFrom`, `dateTo`, `lessons` (`[{"number", "date"}]`, can be empty), `justifiedAbsences` (int), `attachment` (bool), `notifiedTeachers` (`[{"name"}]`). |
+
 ✅ Attendance can be **missing for whole subjects**. On one real account a
 subject taught twice a week had only 2 records after a month, both
 absences, while every other subject had a record for each lesson. Some
@@ -144,16 +150,29 @@ GET Timetables?weekStart=YYYY-MM-DD      (a Monday)
   only show up as `IsSubstitutionClass` on lessons.
 - ✅ A substitution lesson often has **no classroom**, even when the regular
   lesson in that slot has one.
+- ✅ A substitution lesson also carries **the original lesson**: `OrgDate`,
+  `OrgLessonNo`, `OrgHourFrom`, `OrgHourTo`, `OrgSubject`, `OrgTeacher`,
+  `OrgClassroom` (refs with `Id`), plus `SubstitutionNote` (null so far) and
+  `SubstitutionClassUrl`. Comparing `Classroom` with `OrgClassroom` shows a
+  **room change**; `OrgSubject`/`OrgTeacher` say what and who was replaced.
+  Parsed into `LessonData.original` / `LessonData.room_changed`.
+- ✅ Other lesson fields seen: `Lesson`, `Class`, `DateFrom`, `DateTo`,
+  `DayNo`, `TimetableEntry`, `VirtualClass`/`VirtualClassName` (on lessons
+  for a virtual class / group).
 
 ## Agenda, homework, free days
 
 | Endpoint | Root key | Notes |
 |---|---|---|
 | `HomeWorks` | `HomeWorks` | ✅ **The agenda (terminarz)**, despite the name: tests, trips, parent meetings. `Category.Id`, `Subject.Id`, `Date`, `TimeFrom`, `Content`. Some teachers file a quiz under the "Inne" category and say "kartkówka" only in `Content`, so match both fields. ✅ School-wide entries (parent meetings, assemblies) have no subject. |
-| `HomeWorkAssignments` | `HomeWorkAssignments` | ✅ Real homework: `Topic`, `Text`, `Teacher.Id`, `Date`, `DueDate`. **No `Subject` field.** ✅ The subject can be recovered from the teacher's lessons in `Timetables` when that teacher teaches only one subject (all 7 real assignments on a tested account resolved this way). |
+| `HomeWorkAssignments` | `HomeWorkAssignments` | ✅ Real homework: `Topic`, `Text`, `Teacher.Id`, `Date`, `DueDate`, `Lesson.Id`, `Category.Id` (only sometimes), `MustSendAttachFile`, `SendFilePossible`, `AddedFiles`, `HomeworkAssigmentFiles` (sic, a list - empty on all 7 real assignments), `StudentsWhoRead`/`StudentsWhoMarkedAsDone`. The response lists a `HomeWorkAssignments/Attachment` resource; ❓ downloading not tested (no attachment yet). **No `Subject` field.** ✅ The subject can be recovered from the teacher's lessons in `Timetables` when that teacher teaches only one subject (all 7 real assignments on a tested account resolved this way). |
 | `SchoolFreeDays` | `SchoolFreeDays` | ✅ `Name`, `DateFrom`, `DateTo`. |
 | `ClassFreeDays` | `ClassFreeDays` | ✅ Same shape. Empty on tested accounts. |
 | `ParentTeacherConferences` | `ParentTeacherConferences` | ✅ `Id`, `Topic`, `Teacher.Id` (the class tutor on the tested account), `Date`, `Time` (`"17:00:00"`). ✅ **The same meeting also appears in `HomeWorks`**, under a "Zebranie z rodzicami" category, with the same date and `TimeFrom` but different wording. Merging both sources gives duplicates, so match on date and time. |
+
+✅ `NotificationCenter` (listed in third-party OpenAPI notes) answers with
+no JSON at all on Gateway 2.0 - it most likely lives on the newer
+`api.librus.pl/3.0` API, which this library doesn't use.
 
 ## Announcements and lucky number
 

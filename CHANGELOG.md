@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `LessonData.original` (`OriginalLessonData`: date, lesson number, hours,
+  subject, teacher and classroom as originally planned - the `Org*` fields
+  of a substituted lesson, confirmed live), `LessonData.substitution_note`
+  and `LessonData.room_changed`.
+
 ## 0.3.3
 
 ### Added

@@ -415,3 +415,55 @@ def test_point_grades_without_categories_have_no_maximum() -> None:
 )
 def test_point_grades_enabled(payload: dict, expected: bool | None) -> None:
     assert parsers.point_grades_enabled(payload) is expected
+
+
+def test_substituted_lesson_keeps_the_original() -> None:
+    payload = {
+        "Timetable": {
+            "2026-09-29": [
+                [
+                    {
+                        "LessonNo": "6",
+                        "HourFrom": "12:45",
+                        "HourTo": "13:30",
+                        "Subject": {"Id": "42001"},
+                        "Teacher": {"Id": "100"},
+                        "Classroom": {"Id": "17300"},
+                        "IsSubstitutionClass": True,
+                        "IsCanceled": False,
+                        "SubstitutionNote": None,
+                        "OrgDate": "2026-09-29",
+                        "OrgLessonNo": "6",
+                        "OrgHourFrom": "12:45",
+                        "OrgHourTo": "13:30",
+                        "OrgSubject": {"Id": "42005"},
+                        "OrgTeacher": {"Id": "200"},
+                        "OrgClassroom": {"Id": "17292"},
+                    },
+                    {
+                        "LessonNo": "6",
+                        "HourFrom": "12:45",
+                        "HourTo": "13:30",
+                        "Subject": {"Id": "1"},
+                    },
+                ]
+            ]
+        }
+    }
+    lessons = parsers.merge_timetables(payload)[date(2026, 9, 29)]
+
+    substituted, plain = lessons
+    assert substituted.original is not None
+    assert substituted.original.subject_id == 42005
+    assert substituted.original.teacher_id == 200
+    assert substituted.original.lesson_no == 6
+    assert substituted.room_changed is True
+    assert substituted.substitution_note is None
+    assert plain.original is None
+    assert plain.room_changed is False
+
+
+def test_room_change_needs_both_rooms() -> None:
+    lesson = parsers.parse_lesson({"IsSubstitutionClass": True, "OrgClassroom": {"Id": "5"}})
+    assert lesson.original is not None
+    assert lesson.room_changed is False

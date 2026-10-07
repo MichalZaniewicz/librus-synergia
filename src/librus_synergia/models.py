@@ -151,6 +151,22 @@ class AttendanceTypeData:
 
 
 @dataclass(slots=True)
+class OriginalLessonData:
+    """What a substituted or moved lesson was originally (`Org*` fields of
+    a `Timetables` lesson). CONFIRMED live 2026-10-07: present on lessons
+    with `IsSubstitutionClass: true` - the original date, lesson number,
+    hours, subject, teacher and classroom."""
+
+    date: str | None
+    lesson_no: int | None
+    hour_from: str | None
+    hour_to: str | None
+    subject_id: int | None
+    teacher_id: int | None
+    classroom_id: int | None
+
+
+@dataclass(slots=True)
 class LessonData:
     lesson_no: int | None
     hour_from: str | None
@@ -161,6 +177,20 @@ class LessonData:
     is_canceled: bool
     is_substitution: bool
     teacher_ids: tuple[int | str, ...] = ()
+    # The lesson as originally planned, for a substitution (None otherwise).
+    original: OriginalLessonData | None = None
+    substitution_note: str | None = None
+
+    @property
+    def room_changed(self) -> bool:
+        """The lesson takes place in another room than planned (both rooms
+        known and different)."""
+        return (
+            self.original is not None
+            and self.original.classroom_id is not None
+            and self.classroom_id is not None
+            and self.original.classroom_id != self.classroom_id
+        )
 
 
 @dataclass(slots=True)

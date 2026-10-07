@@ -32,6 +32,7 @@ from .models import (
     MeData,
     MessageData,
     NoteData,
+    OriginalLessonData,
     ParentTeacherConferenceData,
     PointGradeCategoryData,
     PointGradeData,
@@ -347,6 +348,28 @@ def parse_lesson(raw: dict[str, Any]) -> LessonData:
         classroom_id=as_int(classroom.get("Id")),
         is_canceled=bool(raw.get("IsCanceled")),
         is_substitution=bool(raw.get("IsSubstitutionClass")),
+        original=_parse_original_lesson(raw),
+        substitution_note=raw.get("SubstitutionNote") or None,
+    )
+
+
+def _parse_original_lesson(raw: dict[str, Any]) -> OriginalLessonData | None:
+    """The `Org*` fields of a substituted/moved lesson (None when absent)."""
+    if not any(key.startswith("Org") for key in raw):
+        return None
+
+    def ref(key: str) -> int | None:
+        value = raw.get(key)
+        return as_int(value.get("Id")) if isinstance(value, dict) else None
+
+    return OriginalLessonData(
+        date=raw.get("OrgDate"),
+        lesson_no=as_int(raw.get("OrgLessonNo")),
+        hour_from=raw.get("OrgHourFrom"),
+        hour_to=raw.get("OrgHourTo"),
+        subject_id=ref("OrgSubject"),
+        teacher_id=ref("OrgTeacher"),
+        classroom_id=ref("OrgClassroom"),
     )
 
 
