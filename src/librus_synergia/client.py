@@ -669,7 +669,8 @@ class LibrusApiClient:
 
     async def async_get_student_info_page(self) -> str:
         """HTML of Synergia's "Informacje" web page - see
-        `parsers.parse_student_number`. A redirect (to the login page) or a
+        `parsers.parse_student_number` (a fallback; the class register number
+        is in JSON via `async_get_user`). A redirect (to the login page) or a
         401/403 means the session is gone, same as on an API endpoint."""
         try:
             async with self._session.get(

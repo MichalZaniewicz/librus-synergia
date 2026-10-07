@@ -32,7 +32,7 @@ Two things apply to every endpoint:
 | `Users/{Me.Account.UserId}` | `User` | ✅ The **student's** own user record (live 2026-10-07): `Id`, `AccountId` (a `LID-AUTH-USER-...`), `AccountNumericIdentifier`, `FirstName`, `LastName`, `Class.Id`/`UUID`, `Unit.Id`, **`ClassRegisterNumber`** (the class register number), `IsEmployee`, `GroupId`. `Users/{Me.Account.Id}` is 404 - `Account.Id` is the parent's login account. |
 | `UserProfile` | `UserProfile` | ✅ `ClassNumber` (e.g. 7), `AccountType` ("parent"), `Town`, `State`, `UnitType` ("Szkoła podstawowa"). |
 | `Root` | `Resources` | ✅ An index of every module, with its URL. On a tested parent account it listed (among others) `Realizations`, `SchoolTrips`, `SchoolFiles`, `TimetableEntries`, `BaseTextGrades`, `Calendars`, `Colors`, `Surveys`, `SpecialAchievement`, `EbiblioLendings`, `StudentInsurances`, `PushChanges`, `PushDevices`, `SilentNight`, `NotificationCenterDeferrals` - being listed doesn't mean readable (see the 403/404s below). `Me` also carries `Refresh: 900` and lists `Me/PeriodicGradeAverages`, `Me/BehaviourDescriptiveGrades`. |
-| *web page* `synergia.librus.pl/informacja` | — | ✅ Not part of the API: an HTML page. Its `<th>Nr w dzienniku</th><td>25</td>` row is the **class register number** (also in JSON: `Users/{Me.Account.UserId}.ClassRegisterNumber`). Opens with the same cookie session as the API (confirmed live 2026-10-07; a dead session redirects to the login page). Parsed by `parse_student_number`. |
+| *web page* `synergia.librus.pl/informacja` | — | ✅ Not part of the API: an HTML page with the student's details, including a `<th>Nr w dzienniku</th><td>25</td>` row. Only a **fallback** for the class register number - the JSON `Users/{Me.Account.UserId}.ClassRegisterNumber` above is the source. Opens with the same cookie session as the API (confirmed live 2026-10-07; a dead session redirects to the login page). Parsed by `parse_student_number`. |
 
 ## Lookups (cache ~24 h)
 
@@ -203,7 +203,8 @@ no JSON at all on Gateway 2.0 - it most likely lives on the newer
 | `SchoolNotices` | `SchoolNotices` | ✅ `Subject`, `Content` (full text, not truncated), `StartDate`, `EndDate`, `CreationDate`, `WasRead`. ✅ `Id` is a **string**. |
 | `LuckyNumbers` | `LuckyNumber` | ✅ `{"LuckyNumber": {"LuckyNumber": 13, "LuckyNumberDay": "2026-09-08"}}`. ✅ The number for the **next** school day can appear a day early, so check `LuckyNumberDay`. |
 
-The student's own class-register number is **not in the JSON API**. ✅ It
-is on Synergia's `informacja` web page, which opens with the same session
-(see [Identity and school](#identity-and-school)); `Librus.student_number()`
-reads it, so "is it my number?" needs no input from the user.
+The student's own class-register number is in the JSON API: ✅
+`Users/{Me.Account.UserId}.ClassRegisterNumber` (see
+[Identity and school](#identity-and-school)). `Librus.student_number()` reads
+it from there (the `informacja` web page is only a fallback), so "is it my
+number?" needs no input from the user.

@@ -29,9 +29,9 @@ API_DOMAIN = "api.librus.pl"
 
 SYNERGIA_PORTAL_LOGIN_URL = "https://synergia.librus.pl/loguj/portalRodzina"
 # Synergia's own web page (HTML, not the JSON API) with the student's
-# details - the only place the class register number ("Nr w dzienniku")
-# is shown. Confirmed live (2026-10-07) to open with the same cookie
-# session the API uses; szkolny-android reads it too (LibrusSynergiaInfo.kt).
+# details, including the class register number ("Nr w dzienniku"). Only a
+# fallback - the number is in JSON as `Users/{Me.Account.UserId}
+# .ClassRegisterNumber`. Opens with the same cookie session the API uses.
 SYNERGIA_STUDENT_INFO_URL = "https://synergia.librus.pl/informacja"
 # Renews the `oauth_token` session cookie without a password login
 # (CONFIRMED live 2026-10-07: 200, empty body, new cookie, API keeps working).
