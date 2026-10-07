@@ -29,7 +29,10 @@ Two things apply to every endpoint:
 | `Classes` | `Class` | ✅ `Number`+`Symbol` (e.g. 7+"d"), `ClassTutor.Id`, `BeginSchoolYear`, `EndFirstSemester`, `EndSchoolYear`. |
 | `Units` | — | ✅ School configuration: `GradesSettings.{Standard,Point,Descriptive}GradesEnabled`, bell schedule (`LessonsRange`), behaviour-points settings. |
 | `VirtualClasses` | `VirtualClasses` | ✅ Reachable, empty on tested accounts. |
-| *web page* `synergia.librus.pl/informacja` | — | ✅ Not part of the API: an HTML page. Its `<th>Nr w dzienniku</th><td>25</td>` row is the **class register number**, which no API endpoint carries. Opens with the same cookie session as the API (confirmed live 2026-10-07; a dead session redirects to the login page). Parsed by `parse_student_number`. |
+| `Users/{Me.Account.UserId}` | `User` | ✅ The **student's** own user record (live 2026-10-07): `Id`, `AccountId` (a `LID-AUTH-USER-...`), `AccountNumericIdentifier`, `FirstName`, `LastName`, `Class.Id`/`UUID`, `Unit.Id`, **`ClassRegisterNumber`** (the class register number), `IsEmployee`, `GroupId`. `Users/{Me.Account.Id}` is 404 - `Account.Id` is the parent's login account. |
+| `UserProfile` | `UserProfile` | ✅ `ClassNumber` (e.g. 7), `AccountType` ("parent"), `Town`, `State`, `UnitType` ("Szkoła podstawowa"). |
+| `Root` | `Resources` | ✅ An index of every module, with its URL. On a tested parent account it listed (among others) `Realizations`, `SchoolTrips`, `SchoolFiles`, `TimetableEntries`, `BaseTextGrades`, `Calendars`, `Colors`, `Surveys`, `SpecialAchievement`, `EbiblioLendings`, `StudentInsurances`, `PushChanges`, `PushDevices`, `SilentNight`, `NotificationCenterDeferrals` - being listed doesn't mean readable (see the 403/404s below). `Me` also carries `Refresh: 900` and lists `Me/PeriodicGradeAverages`, `Me/BehaviourDescriptiveGrades`. |
+| *web page* `synergia.librus.pl/informacja` | — | ✅ Not part of the API: an HTML page. Its `<th>Nr w dzienniku</th><td>25</td>` row is the **class register number** (also in JSON: `Users/{Me.Account.UserId}.ClassRegisterNumber`). Opens with the same cookie session as the API (confirmed live 2026-10-07; a dead session redirects to the login page). Parsed by `parse_student_number`. |
 
 ## Lookups (cache ~24 h)
 
@@ -56,7 +59,14 @@ Two things apply to every endpoint:
 | `PointGrades` | `Grades` | ✅ Reachable, empty on tested accounts (their school has `PointGradesEnabled: false`). 📖 `Grade` (the text shown), `GradeValue` (the points), `Category.Id`, `Subject.Id`, `Semester`, `AddDate`, `AddedBy.Id`. The maximum lives on the category. Parsed by `parse_point_grades`; `point_grades_percentage` gives the weighted earned/possible percentage. |
 | `PointGrades/Categories` | `Categories` | 📖 `Name`, `Weight`, `CountToTheAverage`, `ValueFrom`, `ValueTo` (the maximum points). |
 | `TextGrades` | — | ✅ Reachable, empty on tested accounts. |
+| `BaseTextGrades` | `Grades` | ✅ **Text grades** that `Grades` doesn't contain (one real entry, 2026-09-18): `Grade` (free text), `Subject.Id`, `Lesson.Id`, `Category.Id` (into `TextGrades/Categories`), `AddedBy.Id`, `Student.Id`, `Date`, `AddDate`, `Semester`, `ShowInGradesView`. szkolny-android reads its "descriptive grades" from here. |
+| `TextGrades/Categories` | `Categories` | ✅ `Name`, `Short`, `Color.Id` (into `Colors`), `Weight`, `CountToTheAverage`, `Standard`, `IsReadOnly`, `BlockAnyGrades`, `ObligationToPerform` (71 on a tested school). |
+| `Colors` | `Colors` | ✅ `Id`, `RGB` ("F0E68C"), `Name` ("khaki") - the colours category `Color.Id`s point at. |
+| `DescriptiveTextGrades`, `DescriptiveTextGrades/Skills`, `Grades/Scales` | `Grades` / `Skills` / `Scales` | ✅ Reachable, empty on the tested account. |
+| `Grades/CategoriesAverages` | — | ✅ HTTP 403 for a parent account. |
 | `Grades/Averages`, `PointGrades/Averages` | — | ✅ Reachable, but on the tested school both answer only `{"Status": "Disabled"}` - the school has its averages switched off. ❓ The shape when enabled is unknown. |
+| `BehaviourGrades` | `Grades` | ✅ Reachable, empty on the tested account (its behaviour grade is in `BehaviourGrades/Points`). |
+| `BehaviourGrades/Types` | `Types` | ✅ `Id` (string "1".."6"), `Name` ("wzorowe".."naganne"), `Shortcut` ("wz".."ng") - the names behind `BehaviourGrade.Id`. |
 | `BehaviourGrades/SystemProposal` | — | ✅ HTTP 403 for a parent account on the tested school (a proposed behaviour grade, per third-party OpenAPI notes). |
 | `BehaviourGrades/Points` | `Grades` | The formal behaviour grade ("ocena zachowania"). Points schools use `Value`/`ShortName`. ✅ A classic-scale grade comes with `ShortName`/`Text` empty and no `Value` (seen live 2026-10-05 on a monthly grade, "Ocena zachowania miesiąc za IX/26" in `Comments`); 📖 the grade itself is `BehaviourGrade.Id` (1 wz, 2 bdb, 3 db, 4 popr, 5 ndp, 6 ng). Also `Category`, `Semester`, `AddDate`, `Comments` (ids into `BehaviourGrades/Points/Comments`). |
 
@@ -156,6 +166,10 @@ GET Timetables?weekStart=YYYY-MM-DD      (a Monday)
   `SubstitutionClassUrl`. Comparing `Classroom` with `OrgClassroom` shows a
   **room change**; `OrgSubject`/`OrgTeacher` say what and who was replaced.
   Parsed into `LessonData.original` / `LessonData.room_changed`.
+- ✅ `TimetableEntries` (root `TimetableEntries`) is the **standing weekly plan**, not dated weeks: `Lesson.Id`, `DayOfTheWeek` (1 = Monday), `LessonNo`, `DateFrom`/`DateTo` (the whole school year), `Classroom` with `Symbol`/`Name` inline (60 entries on a tested class).
+- ✅ `Timetables/OtherActivitiesRegister?dateFrom=&dateTo=&hideOutdatedEntries=false` answers `{"data": [...]}` (extracurricular activities); empty on the tested account.
+- ✅ **`Realizations`** = the **lessons held, with their topics** (168 entries a month into the year): `Id` (a `t`-prefixed string), `Lesson.Id`, `LessonNo`, `Date`, **`Topic`**, `IsTrip`, `CountInStatistics`, `CountInRPN`, `AddedBy.Id`. The JSON counterpart of the `zrealizowane_lekcje` web page. Also `Realizations/TypesOfDays` (`Dzień powszedni`, `Święto`), `/TypesOfClasses`, `/ThematicTeaching`, `/FilledByTeacher`.
+- ✅ `PlannedLessons` is reachable and empty on the tested account.
 - ✅ Other lesson fields seen: `Lesson`, `Class`, `DateFrom`, `DateTo`,
   `DayNo`, `TimetableEntry`, `VirtualClass`/`VirtualClassName` (on lessons
   for a virtual class / group).
@@ -167,6 +181,14 @@ GET Timetables?weekStart=YYYY-MM-DD      (a Monday)
 | `HomeWorks` | `HomeWorks` | ✅ **The agenda (terminarz)**, despite the name: tests, trips, parent meetings. `Category.Id`, `Subject.Id`, `Date`, `TimeFrom`, `Content`. Some teachers file a quiz under the "Inne" category and say "kartkówka" only in `Content`, so match both fields. ✅ School-wide entries (parent meetings, assemblies) have no subject. |
 | `HomeWorkAssignments` | `HomeWorkAssignments` | ✅ Real homework: `Topic`, `Text`, `Teacher.Id`, `Date`, `DueDate`, `Lesson.Id`, `Category.Id` (only sometimes), `MustSendAttachFile`, `SendFilePossible`, `AddedFiles`, `HomeworkAssigmentFiles` (sic, a list - empty on all 7 real assignments), `StudentsWhoRead`/`StudentsWhoMarkedAsDone`. The response lists a `HomeWorkAssignments/Attachment` resource; ❓ downloading not tested (no attachment yet). **No `Subject` field.** ✅ The subject can be recovered from the teacher's lessons in `Timetables` when that teacher teaches only one subject (all 7 real assignments on a tested account resolved this way). |
 | `SchoolFreeDays` | `SchoolFreeDays` | ✅ `Name`, `DateFrom`, `DateTo`. |
+| `Calendars` | `Calendars` | ✅ The class calendars (`[{"Id": "<class id>"}]`). |
+| `Calendars/{classId}?year=&month=` | `Calendar` | ✅ One month's **ids** of `HomeWorks`, `Substitutions`, `ParentTeacherConferences`, `SchoolFreeDays`, `ClassFreeDays`, `TeacherFreeDays` (refs only, no content), with `Pages.Prev`/`Next`. A cheap way to narrow the agenda by month. |
+| `Calendars/ClassFreeDays/Types` | `Types` | ✅ `Name` of class free-day types (e.g. "Wycieczka", "Próbny egzamin ósmoklasisty."). |
+| `Calendars/TeacherFreeDays` | — | ✅ HTTP 403 for a parent account (like `TeacherFreeDays`). |
+| `HomeWorkAssignments/Categories` | `Categories` | ✅ `CategoryName` and `Teacher.Id` - each teacher's own homework categories (96 on a tested school). |
+| `SchoolTrips` | `Data` | ✅ **School trips** of the class (camelCase): `id`, `destination`, `route`, `locomotion`, `termFrom`, `termTo`, `creatorName`/`creatorLastName`, `coordinatorName`. |
+| `SchoolFiles` | `Data` | ✅ **Documents the school shares** with parents: `id`, `displayName`, `addedOnDate`, `downloadUrl` (a Synergia web path, `/pliki_szkoly/pobierz/<id>`), `iconUrl`, `fileStatus`. |
+| `Surveys` | — | ✅ HTTP 404 on the tested account (lists `Surveys/Details`). |
 | `ClassFreeDays` | `ClassFreeDays` | ✅ Same shape. Empty on tested accounts. |
 | `ParentTeacherConferences` | `ParentTeacherConferences` | ✅ `Id`, `Topic`, `Teacher.Id` (the class tutor on the tested account), `Date`, `Time` (`"17:00:00"`). ✅ **The same meeting also appears in `HomeWorks`**, under a "Zebranie z rodzicami" category, with the same date and `TimeFrom` but different wording. Merging both sources gives duplicates, so match on date and time. |
 

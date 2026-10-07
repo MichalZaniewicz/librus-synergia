@@ -69,6 +69,11 @@ If any response body in steps 3–4 contains a captcha marker (`captcha`,
 - There is **no refresh token**. When `oauth_token` expires you have to log
   in again with the password, so unattended long-running use needs the
   password stored.
+- ✅ `GET https://synergia.librus.pl/refreshToken` (with the session cookies)
+  answers 200 with an empty body and a **new `oauth_token`** cookie; the API
+  keeps working afterwards (confirmed live 2026-10-07). Calling it before the
+  session dies should extend it without a password login. ❓ How long the
+  extended session lasts was not measured. `Me` also reports `Refresh: 900`.
 - ✅ The session can die **before** 24 h. The client assumes a 20 h
   lifetime, and on an HTTP 401 from a data endpoint it logs in again once
   and retries. `Librus` does this for you.

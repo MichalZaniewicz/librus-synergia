@@ -27,6 +27,10 @@ Base: `https://wiadomosci.librus.pl/api`
 | `GET /inbox/unreadMessagesCount` | ✅ `{"data": {"inbox": 2, "notes": 0, "alerts": 1, "substitutions": 0, "absences": 0, "justifications": 0, "trash": 0}}`: counts for every mailbox in one call. |
 | `GET /<mailbox>/messages?limit=10[&unreadOnly=1]` | ✅ `{"data": [...], "total": N}`. ✅ At least one secondary mailbox returns a **bare JSON array** without the `data` envelope. ✅ Listing **does not** mark anything read. |
 | `GET /<mailbox>/messages/<id>` | ✅ The full message. ⚠️ **Marks the message read**, exactly like opening it in the app. |
+| `GET /me` | ✅ The logged-in account: `firstName`, `lastName`, `groupName` ("rodzic"), `accountId`, `accessToAttachments`. |
+| `GET /outbox/messages` | ✅ Messages you sent (`receiverName`, `topic`, `content`, `sendDate`). No read-marking involved. |
+| `GET /archive/inbox/messages` | ✅ Archived (past years) inbox, same item shape, `total` and `archivingInProgress`. |
+| `GET /receivers/student-subjects` | ✅ `[{"teacherIdentifier", "subject"}]` - the student's teachers with their subjects. |
 
 Mailboxes: `inbox`, `notes`, `alerts`, `substitutions`, `absences`,
 `justifications`, `trash`. ✅ For some accounts `alerts`/`substitutions`
@@ -60,6 +64,17 @@ UTF-8**.
 ## Attachments
 
 ✅ The single-message response lists `attachments: [{"id", "filename"}]`.
-The JSON API has **no download endpoint**. Downloads only exist in the old
-XML/"sandbox" protocol, which uses a different session, so this library
-exposes the names only.
+
+✅ **Download (confirmed live 2026-10-07)**, with the same session and
+without opening the message:
+
+1. `GET /attachments/<attachment id>/messages/<message id>` →
+   `{"data": {"status": "ok", "downloadLink": "https://sandbox.librus.pl/GetFile/<key>"}}`.
+2. `GET <downloadLink>` → an HTML waiting page.
+3. `GET <downloadLink>/get` (send `Referer: <downloadLink>`) → the file
+   itself, with `Content-Disposition: attachment; filename="..."`. Third-party
+   code retries while this still answers `text/html`; the tested PDF came on
+   the first try.
+
+The attachment ids still come from the single-message response, so getting
+them for an **unread** message would mark it read.
