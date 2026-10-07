@@ -39,7 +39,9 @@ class FakeResponse:
         json_data: Any = None,
         text_data: str = "",
         headers: dict[str, str] | None = None,
+        body: bytes | None = None,
     ) -> None:
+        self._body = body
         self.status = status
         self.headers = headers or {}
         self.url = URL("https://example.invalid/")
@@ -53,6 +55,9 @@ class FakeResponse:
 
     async def text(self) -> str:
         return self._text
+
+    async def read(self) -> bytes:
+        return self._body if self._body is not None else self._text.encode()
 
     async def __aenter__(self) -> FakeResponse:
         return self

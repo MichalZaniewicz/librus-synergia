@@ -322,6 +322,9 @@ class HomeworkAssignmentData:
     teacher_id: int | None
     date: str | None
     due_date: str | None
+    # `Category.Id` (only sometimes set) -> `HomeWorkAssignments/Categories`.
+    category_id: int | None = None
+    lesson_id: int | None = None
 
 
 # `BehaviourGrades/Points[].BehaviourGrade.Id` -> (short, full name), a fixed
@@ -396,6 +399,73 @@ class DescriptiveGradeData:
     skill_id: int | None
     category_id: int | None
     add_date: str | None
+
+
+@dataclass(slots=True)
+class TextGradeData:
+    """A text grade (`BaseTextGrades`) - free text a teacher enters instead
+    of a number, missing from `Grades`. CONFIRMED live 2026-10-07."""
+
+    id: int
+    value: str
+    subject_id: int | None
+    lesson_id: int | None
+    category_id: int | None
+    category: str | None
+    teacher_id: int | None
+    date: str | None
+    add_date: str | None
+    semester: int | None
+    counts_to_average: bool = False
+
+
+@dataclass(slots=True)
+class LessonTopicData:
+    """A lesson that took place, with its topic (`Realizations`).
+    CONFIRMED live 2026-10-07. `subject_id` is resolved from `Lessons`
+    when the lookup is given to the parser."""
+
+    id: str
+    date: str | None
+    lesson_no: int | None
+    lesson_id: int | None
+    topic: str
+    is_trip: bool
+    teacher_id: int | None
+    subject_id: int | None = None
+
+
+@dataclass(slots=True)
+class SchoolTripData:
+    """A school trip (`SchoolTrips`). CONFIRMED live 2026-10-07."""
+
+    id: int
+    destination: str
+    route: str
+    transport: str
+    date_from: str | None
+    date_to: str | None
+    coordinator: str | None
+
+
+@dataclass(slots=True)
+class SchoolFileData:
+    """A document the school shares with parents (`SchoolFiles`).
+    `download_path` is a Synergia web path. CONFIRMED live 2026-10-07."""
+
+    id: str
+    name: str
+    added: str | None
+    download_path: str | None
+
+
+@dataclass(slots=True)
+class AttachmentFileData:
+    """A downloaded message attachment."""
+
+    filename: str
+    content_type: str
+    content: bytes
 
 
 @dataclass(slots=True)
@@ -520,6 +590,11 @@ class LibrusData:
     descriptive_grades: list[DescriptiveGradeData] = field(default_factory=list)
     point_grades: list[PointGradeData] = field(default_factory=list)
     justifications: list[JustificationData] = field(default_factory=list)
+    text_grades: list[TextGradeData] = field(default_factory=list)
+    lesson_topics: list[LessonTopicData] = field(default_factory=list)
+    school_trips: list[SchoolTripData] = field(default_factory=list)
+    school_files: list[SchoolFileData] = field(default_factory=list)
+    homework_assignment_categories: dict[int, str] = field(default_factory=dict)
     parent_teacher_conferences: list[ParentTeacherConferenceData] = field(default_factory=list)
     # Full message CONTENT for a couple of the most actionable secondary
     # mailboxes (unlike unread_messages_by_mailbox above, which only ever

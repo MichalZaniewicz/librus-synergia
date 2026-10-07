@@ -77,4 +77,5 @@ without opening the message:
    the first try.
 
 The attachment ids still come from the single-message response, so getting
-them for an **unread** message would mark it read.
+them for an **unread** message would mark it read. `Librus.download_attachment`
+does steps 1-3.

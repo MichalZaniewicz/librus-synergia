@@ -8,6 +8,7 @@ OAuth password grant szkolny-android documented. Confirmed live on
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from .const import (
     DATA_BASE_URL,
     ENDPOINT_ATTENDANCE_TYPES,
     ENDPOINT_ATTENDANCES,
+    ENDPOINT_BASE_TEXT_GRADES,
     ENDPOINT_BEHAVIOUR_GRADES_POINTS,
     ENDPOINT_BEHAVIOUR_GRADES_POINTS_CATEGORIES,
     ENDPOINT_BEHAVIOUR_GRADES_POINTS_COMMENTS,
@@ -37,6 +39,7 @@ from .const import (
     ENDPOINT_GRADE_COMMENTS,
     ENDPOINT_GRADE_TYPES,
     ENDPOINT_GRADES,
+    ENDPOINT_HOMEWORK_ASSIGNMENT_CATEGORIES,
     ENDPOINT_HOMEWORK_ASSIGNMENTS,
     ENDPOINT_HOMEWORK_CATEGORIES,
     ENDPOINT_HOMEWORKS,
@@ -49,11 +52,15 @@ from .const import (
     ENDPOINT_PARENT_TEACHER_CONFERENCES,
     ENDPOINT_POINT_GRADE_CATEGORIES,
     ENDPOINT_POINT_GRADES,
+    ENDPOINT_REALIZATIONS,
+    ENDPOINT_SCHOOL_FILES,
     ENDPOINT_SCHOOL_FREE_DAYS,
     ENDPOINT_SCHOOL_NOTICES,
+    ENDPOINT_SCHOOL_TRIPS,
     ENDPOINT_SCHOOLS,
     ENDPOINT_SUBJECTS,
     ENDPOINT_TEACHERS,
+    ENDPOINT_TEXT_GRADE_CATEGORIES,
     ENDPOINT_TEXT_GRADES,
     ENDPOINT_TIMETABLES,
     ENDPOINT_UNITS,
@@ -67,8 +74,10 @@ from .const import (
     OAUTH_TOKEN_COOKIE,
     PERSISTED_COOKIE_NAMES,
     SESSION_EXPIRY_SAFETY_MARGIN_SECONDS,
+    SESSION_REFRESH_AFTER_SECONDS,
     SYNERGIA_DOMAIN,
     SYNERGIA_PORTAL_LOGIN_URL,
+    SYNERGIA_REFRESH_TOKEN_URL,
     SYNERGIA_STUDENT_INFO_URL,
     USER_AGENT,
 )
@@ -80,6 +89,7 @@ from .exceptions import (
     LibrusSessionExpiredError,
     LibrusUnexpectedResponseError,
 )
+from .models import AttachmentFileData
 
 _CAPTCHA_MARKERS = ("captcha", "recaptcha", "g-recaptcha", "hcaptcha")
 
@@ -197,9 +207,47 @@ class LibrusApiClient:
         `force=True` - use `force` to recover from a
         `LibrusSessionExpiredError` (Librus dropped the session earlier
         than the elapsed-time estimate expected)."""
-        if not force and self.is_session_valid():
+        if force:
+            await self.async_login(password)
+            return
+        age = self.session_age_seconds
+        if (
+            age is not None
+            and age >= SESSION_REFRESH_AFTER_SECONDS
+            and await self.async_refresh_session()
+        ):
+            return
+        if self.is_session_valid():
             return
         await self.async_login(password)
+
+    async def async_refresh_session(self) -> bool:
+        """Renew the `oauth_token` cookie without a password login
+        (`synergia.librus.pl/refreshToken`). True when Librus answered 200
+        and the cookie is still there; the session then counts as fresh
+        and is persisted via `on_session_update`. False (never raises) when
+        it didn't work - the caller logs in as usual."""
+        if self._logged_in_at <= 0:
+            return False
+        try:
+            async with self._session.get(
+                SYNERGIA_REFRESH_TOKEN_URL,
+                headers={"User-Agent": USER_AGENT},
+                allow_redirects=False,
+            ) as response:
+                await response.read()
+                status = response.status
+        except aiohttp.ClientError:
+            return False
+        jar_cookies = self._session.cookie_jar.filter_cookies(URL(f"https://{SYNERGIA_DOMAIN}/"))
+        if status != 200 or OAUTH_TOKEN_COOKIE not in jar_cookies:
+            return False
+        self._logged_in_at = time.time()
+        if self._on_session_update is not None:
+            result = self._on_session_update(self._export_session())
+            if result is not None:
+                await result
+        return True
 
     async def async_login(self, password: str) -> LibrusSessionData:
         """Run the full login handshake (portalRodzina -> Authorization form
@@ -562,6 +610,26 @@ class LibrusApiClient:
         Units' GradesSettings.PointGradesEnabled. See `parse_point_grades`."""
         return await self._async_request(ENDPOINT_POINT_GRADES)
 
+    async def async_get_base_text_grades(self) -> dict[str, Any]:
+        """Text grades (`BaseTextGrades`), see `parse_text_grades`."""
+        return await self._async_request(ENDPOINT_BASE_TEXT_GRADES)
+
+    async def async_get_text_grade_categories(self) -> dict[str, Any]:
+        return await self._async_request(ENDPOINT_TEXT_GRADE_CATEGORIES)
+
+    async def async_get_realizations(self) -> dict[str, Any]:
+        """Lessons held with their topics, see `parse_realizations`."""
+        return await self._async_request(ENDPOINT_REALIZATIONS)
+
+    async def async_get_school_trips(self) -> dict[str, Any]:
+        return await self._async_request(ENDPOINT_SCHOOL_TRIPS)
+
+    async def async_get_school_files(self) -> dict[str, Any]:
+        return await self._async_request(ENDPOINT_SCHOOL_FILES)
+
+    async def async_get_homework_assignment_categories(self) -> dict[str, Any]:
+        return await self._async_request(ENDPOINT_HOMEWORK_ASSIGNMENT_CATEGORIES)
+
     async def async_get_justifications(self) -> dict[str, Any]:
         """Absence justifications submitted by the parent, with their status.
         See `parse_justifications`."""
@@ -682,3 +750,60 @@ class LibrusApiClient:
         UI.
         """
         return await self._async_request_url(f"{MESSAGES_BASE_URL}/{mailbox}/messages/{message_id}")
+
+    async def async_download_message_attachment(
+        self, attachment_id: str, message_id: str, *, max_wait_attempts: int = 5
+    ) -> AttachmentFileData:
+        """Download one message attachment without opening the message.
+        CONFIRMED live 2026-10-07: `attachments/<id>/messages/<msg>` gives a
+        `sandbox.librus.pl/GetFile/...` link; the link itself is an HTML
+        waiting page and `<link>/get` the file. The attachment ids come from
+        `async_get_message` (which marks an unread message read)."""
+        payload = await self._async_request_url(
+            f"{MESSAGES_BASE_URL}/attachments/{attachment_id}/messages/{message_id}"
+        )
+        link = (
+            (payload.get("data") or {}).get("downloadLink")
+            if isinstance(payload.get("data"), dict)
+            else None
+        )
+        if not link:
+            raise LibrusUnexpectedResponseError(f"No download link for attachment {attachment_id}")
+        headers = {"User-Agent": USER_AGENT, "Referer": link}
+        try:
+            async with self._session.get(link, headers=headers) as response:
+                await response.read()
+            for attempt in range(max_wait_attempts):
+                async with self._session.get(f"{link}/get", headers=headers) as response:
+                    content_type = response.headers.get("Content-Type", "")
+                    body = await response.read()
+                    if response.status == 200 and "text/html" not in content_type:
+                        return AttachmentFileData(
+                            filename=_attachment_filename(
+                                response.headers.get("Content-Disposition")
+                            )
+                            or f"attachment-{attachment_id}",
+                            content_type=content_type.split(";")[0].strip()
+                            or "application/octet-stream",
+                            content=body,
+                        )
+                if attempt + 1 < max_wait_attempts:
+                    await asyncio.sleep(2)
+        except aiohttp.ClientError as err:
+            raise LibrusConnectionError(str(err)) from err
+        raise LibrusUnexpectedResponseError(f"Attachment {attachment_id} wasn't ready to download")
+
+
+def _attachment_filename(disposition: str | None) -> str | None:
+    """The file name from a `Content-Disposition` header (RFC 5987
+    `filename*=` first, then `filename=`), without any path."""
+    if not disposition:
+        return None
+    from email.message import Message  # noqa: PLC0415
+
+    message = Message()
+    message["content-disposition"] = disposition
+    name = message.get_filename()
+    if not name:
+        return None
+    return name.replace("\\", "/").rsplit("/", 1)[-1].strip() or None

@@ -33,6 +33,9 @@ SYNERGIA_PORTAL_LOGIN_URL = "https://synergia.librus.pl/loguj/portalRodzina"
 # is shown. Confirmed live (2026-10-07) to open with the same cookie
 # session the API uses; szkolny-android reads it too (LibrusSynergiaInfo.kt).
 SYNERGIA_STUDENT_INFO_URL = "https://synergia.librus.pl/informacja"
+# Renews the `oauth_token` session cookie without a password login
+# (CONFIRMED live 2026-10-07: 200, empty body, new cookie, API keeps working).
+SYNERGIA_REFRESH_TOKEN_URL = "https://synergia.librus.pl/refreshToken"
 API_OAUTH_AUTHORIZATION_URL = f"https://api.librus.pl/OAuth/Authorization?client_id={CLIENT_ID}"
 API_OAUTH_AUTHORIZATION_WITH_SCOPE_URL = (
     f"{API_OAUTH_AUTHORIZATION_URL}&response_type=code&scope=mydata"
@@ -84,6 +87,9 @@ PERSISTED_COOKIE_NAMES: dict[str, tuple[str, ...]] = {
 # quirks), the client tracks elapsed time since its own last successful
 # login and assumes this conservative fixed lifetime.
 ASSUMED_SESSION_LIFETIME_SECONDS = 20 * 3600
+# Refresh the session (SYNERGIA_REFRESH_TOKEN_URL) once it's this old, so a
+# long-running client keeps one session instead of logging in daily.
+SESSION_REFRESH_AFTER_SECONDS = 2 * 3600
 SESSION_EXPIRY_SAFETY_MARGIN_SECONDS = 300
 
 ENDPOINT_ME = "Me"
@@ -190,6 +196,17 @@ ENDPOINT_POINT_GRADES = "PointGrades"
 # Absence justifications submitted by the parent (CONFIRMED live 2026-10-07):
 # a lowercase `{"status", "message", "data": [...]}` envelope.
 ENDPOINT_JUSTIFICATIONS = "Justifications"
+# CONFIRMED live 2026-10-07 (second probe), see docs/endpoints.md:
+# text grades missing from `Grades`, and their categories.
+ENDPOINT_BASE_TEXT_GRADES = "BaseTextGrades"
+ENDPOINT_TEXT_GRADE_CATEGORIES = "TextGrades/Categories"
+# Lessons held, with their topics.
+ENDPOINT_REALIZATIONS = "Realizations"
+# School trips and documents the school shares (lowercase `Data` envelope).
+ENDPOINT_SCHOOL_TRIPS = "SchoolTrips"
+ENDPOINT_SCHOOL_FILES = "SchoolFiles"
+# Each teacher's homework categories (`CategoryName`).
+ENDPOINT_HOMEWORK_ASSIGNMENT_CATEGORIES = "HomeWorkAssignments/Categories"
 # Categories of point grades - carry the maximum (ValueTo), weight and
 # whether they count towards the average (szkolny-android's
 # LibrusApiPointGradeCategories.kt).

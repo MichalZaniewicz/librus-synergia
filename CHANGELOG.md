@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.3.5
+
+### Added
+- **Text grades:** `Librus.text_grades()` (`BaseTextGrades` with category
+  names from `TextGrades/Categories`) - free-text grades that `grades()`
+  never contained. `TextGradeData`, `parse_text_grades`,
+  `parse_text_grade_categories`.
+- **Lesson topics:** `Librus.lesson_topics()` (`Realizations`): every lesson
+  held with its topic, date, lesson number, whether it was a trip, and the
+  subject resolved through `Lessons`. `LessonTopicData`, `parse_realizations`.
+- **School trips and documents:** `Librus.school_trips()` (`SchoolTrips`) and
+  `Librus.school_files()` (`SchoolFiles`). `SchoolTripData`, `SchoolFileData`.
+- **Message attachments:** `Librus.download_attachment(attachment_id,
+  message_id)` / `LibrusApiClient.async_download_message_attachment()`
+  download a file (name, type, bytes) without opening the message.
+- **Session refresh:** `LibrusApiClient.async_refresh_session()`
+  (`synergia.librus.pl/refreshToken`); `async_ensure_session_valid` now
+  refreshes a session older than 2 hours instead of waiting for it to expire
+  and logging in with the password again.
+- `HomeworkAssignmentData.category_id` / `lesson_id`, `Librus.homework_categories()`
+  (`HomeWorkAssignments/Categories`).
+- `fetch_all()` fills `LibrusData.text_grades`, `lesson_topics`,
+  `school_trips`, `school_files` and `homework_assignment_categories`.
+
+### Changed
+- `Librus.student_number()` reads `ClassRegisterNumber` from the student's
+  own `Users` record first and only falls back to the `informacja` web page.
+
+All of it confirmed on a real account (2026-10-07).
+
 ## 0.3.4
 
 ### Added

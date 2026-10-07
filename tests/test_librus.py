@@ -171,9 +171,25 @@ async def test_student_number_from_web_page() -> None:
     async with aiohttp.ClientSession() as session:
         with MockedSession(session) as mocked:
             mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/Me", json_data={"Me": {"Account": {}}})
             mocked.get(SYNERGIA_STUDENT_INFO_URL, text_data=STUDENT_INFO_PAGE)
             librus = Librus("1234567u", "pw", session=session)
             assert await librus.student_number() == 25
+
+
+async def test_student_number_from_the_students_user_record() -> None:
+    """`Users/{Me.Account.UserId}.ClassRegisterNumber` first - no web page."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/Me", json_data={"Me": {"Account": {"UserId": 77}}})
+            mocked.get(
+                f"{DATA_BASE_URL}/Users/77",
+                json_data={"User": {"Id": 77, "ClassRegisterNumber": 12}},
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.student_number() == 12
+            assert SYNERGIA_STUDENT_INFO_URL not in mocked.get_calls
 
 
 async def test_student_number_redirect_relogs_in() -> None:
@@ -181,6 +197,7 @@ async def test_student_number_redirect_relogs_in() -> None:
     async with aiohttp.ClientSession() as session:
         with MockedSession(session) as mocked:
             mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/Me", json_data={"Me": {"Account": {}}})
             mocked.get_sequence(
                 SYNERGIA_STUDENT_INFO_URL,
                 {"status": 302, "text_data": ""},

@@ -76,7 +76,7 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | Method | Returns |
 |---|---|
 | `me()` | the student (`Me.User`), not the parent login |
-| `student_number()` | class register number (nr w dzienniku), read from Synergia's web page |
+| `student_number()` | class register number (nr w dzienniku), from the student's `Users` record (web page as fallback) |
 | `grades()`, `grade_categories()` | grades with teacher comments resolved; weights and categories |
 | `descriptive_grades()`, `behaviour_grades()` | descriptive grades; formal behaviour grade (ocena zachowania) |
 | `point_grades()` | point grades (schools grading 0-100 or in points) with each category's maximum and weight; `parsers.point_grades_percentage()` averages them |
@@ -87,6 +87,11 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `agenda()`, `agenda_categories()` | terminarz: tests, quizzes, trips, parent meetings |
 | `homework()` | homework assignments (zadania domowe) |
 | `free_days()`, `parent_teacher_conferences()` | days off; conferences |
+| `text_grades()` | free-text grades, which `grades()` doesn't contain |
+| `lesson_topics()` | every lesson held, with its topic and subject (Realizations) |
+| `school_trips()`, `school_files()` | school trips; documents the school shares with parents |
+| `homework_categories()` | homework assignment categories |
+| `download_attachment(attachment_id, message_id)` | a message attachment (name, type, bytes), without opening the message |
 | `announcements()` | school notice board (tablica ogłoszeń) |
 | `lucky_number()` | szczęśliwy numerek, with the day it applies to |
 | `unread_messages()`, `messages(mailbox, limit)` | unread count per mailbox; message previews (listing never marks read) |
@@ -95,7 +100,7 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `school()`, `school_class()` | school details; class, homeroom teacher and semester dates |
 | `fetch_all()` | everything above as one `LibrusData` snapshot |
 
-Every method logs in lazily and retries once after a fresh login if the session has expired.
+Every method logs in lazily and retries once after a fresh login if the session has expired. A session older than 2 hours is renewed through Librus's own `refreshToken`, so a long-running program doesn't log in with the password every day.
 
 ## What's new since last time?
 

@@ -25,6 +25,7 @@ from . import parsers
 from .client import LibrusApiClient, LibrusSessionData, OnSessionUpdate
 from .exceptions import LibrusError, LibrusSessionExpiredError, LibrusUnexpectedResponseError
 from .models import (
+    AttachmentFileData,
     AttendanceData,
     AttendanceTypeData,
     BehaviourGradeData,
@@ -38,6 +39,7 @@ from .models import (
     HomeworkEventData,
     JustificationData,
     LessonData,
+    LessonTopicData,
     LibrusData,
     LuckyNumberData,
     MeData,
@@ -46,7 +48,10 @@ from .models import (
     ParentTeacherConferenceData,
     PointGradeData,
     SchoolData,
+    SchoolFileData,
     SchoolNoticeData,
+    SchoolTripData,
+    TextGradeData,
 )
 
 T = TypeVar("T")
@@ -189,8 +194,20 @@ class Librus:
         return parsers.parse_me(await self._call(self.client.async_get_me))
 
     async def student_number(self) -> int | None:
-        """Class register number ("Nr w dzienniku"), read from Synergia's
-        web page - the JSON API doesn't carry it."""
+        """Class register number ("Nr w dzienniku"): from the student's own
+        `Users` record (`Me.Account.UserId`), falling back to Synergia's
+        `informacja` web page."""
+        me = await self._call(self.client.async_get_me)
+        user_id = ((me.get("Me") or {}).get("Account") or {}).get("UserId")
+        if user_id:
+            try:
+                number = parsers.parse_user_class_register_number(
+                    await self._call(lambda: self.client.async_get_user(user_id))
+                )
+            except LibrusError:
+                number = None
+            if number is not None:
+                return number
         return parsers.parse_student_number(
             await self._call(self.client.async_get_student_info_page)
         )
@@ -453,6 +470,45 @@ class Librus:
             klass, "ClassFreeDays"
         )
 
+    async def text_grades(self) -> list[TextGradeData]:
+        """Text grades (`BaseTextGrades`) - free-text grades that `grades()`
+        doesn't contain - with their category names."""
+        grades, categories = await asyncio.gather(
+            self._call(self.client.async_get_base_text_grades),
+            self._call(self.client.async_get_text_grade_categories),
+        )
+        return parsers.parse_text_grades(grades, parsers.parse_text_grade_categories(categories))
+
+    async def lesson_topics(self) -> list[LessonTopicData]:
+        """Lessons held with their topics (`Realizations`), newest first,
+        with the subject resolved through `Lessons`."""
+        topics, lessons = await asyncio.gather(
+            self._call(self.client.async_get_realizations),
+            self._call(self.client.async_get_lessons),
+        )
+        return parsers.parse_realizations(topics, parsers.parse_lesson_subjects(lessons))
+
+    async def school_trips(self) -> list[SchoolTripData]:
+        return parsers.parse_school_trips(await self._call(self.client.async_get_school_trips))
+
+    async def school_files(self) -> list[SchoolFileData]:
+        """Documents the school shares with parents."""
+        return parsers.parse_school_files(await self._call(self.client.async_get_school_files))
+
+    async def homework_categories(self) -> dict[int, str]:
+        """Homework assignment categories (`HomeworkAssignmentData.category_id`)."""
+        payload = await self._call(self.client.async_get_homework_assignment_categories)
+        return parsers.parse_id_name_map(payload, ("Categories",))
+
+    async def download_attachment(
+        self, attachment_id: str, message_id: str
+    ) -> AttachmentFileData | None:
+        """Download a message attachment (ids from `message()`), without
+        opening the message. None when the school has no messages module."""
+        return await self._call_messages(
+            lambda: self.client.async_download_message_attachment(attachment_id, message_id)
+        )
+
     async def justifications(self) -> list[JustificationData]:
         """Absence justifications the parent submitted, newest first, with
         their status. `parsers.justified_dates()` turns them into the days
@@ -568,6 +624,11 @@ class Librus:
             descriptive,
             point,
             justifications,
+            text_grades,
+            topics_payload,
+            trips,
+            files,
+            homework_categories,
             conferences,
             lessons_payload,
         ) = await asyncio.gather(
@@ -585,6 +646,11 @@ class Librus:
             optional(self.descriptive_grades(), []),
             optional(self.point_grades(), []),
             optional(self.justifications(), []),
+            optional(self.text_grades(), []),
+            optional(self._call(self.client.async_get_realizations), {}),
+            optional(self.school_trips(), []),
+            optional(self.school_files(), []),
+            optional(self.homework_categories(), {}),
             optional(self.parent_teacher_conferences(), []),
             optional(self._call(self.client.async_get_lessons), {}),
         )
@@ -612,6 +678,13 @@ class Librus:
             descriptive_grades=descriptive,
             point_grades=point,
             justifications=justifications,
+            text_grades=text_grades,
+            lesson_topics=parsers.parse_realizations(
+                topics_payload, parsers.parse_lesson_subjects(lessons_payload)
+            ),
+            school_trips=trips,
+            school_files=files,
+            homework_assignment_categories=homework_categories,
             parent_teacher_conferences=conferences,
             lesson_subjects=parsers.parse_lesson_subjects(lessons_payload),
         )

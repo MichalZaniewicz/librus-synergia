@@ -15,6 +15,7 @@ from librus_synergia.const import (
     DATA_BASE_URL,
     MESSAGES_BASE_URL,
     SYNERGIA_PORTAL_LOGIN_URL,
+    SYNERGIA_REFRESH_TOKEN_URL,
 )
 from librus_synergia.exceptions import (
     LibrusCaptchaRequiredError,
@@ -270,3 +271,70 @@ async def test_async_close_closes_the_underlying_session() -> None:
     assert not session.closed
     await client.async_close()
     assert session.closed
+
+
+async def test_old_session_is_refreshed_without_a_login() -> None:
+    """Past SESSION_REFRESH_AFTER_SECONDS, /refreshToken renews the session
+    (no password login) and the session counts as fresh again."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(SYNERGIA_REFRESH_TOKEN_URL, status=200, text_data="")
+            updates: list[LibrusSessionData] = []
+            client = LibrusApiClient(session, "1234567u", on_session_update=updates.append)
+            session.cookie_jar.update_cookies(
+                SimpleCookie("oauth_token=abc"), URL("https://synergia.librus.pl/")
+            )
+            client.import_session(
+                LibrusSessionData(cookies=[], logged_in_at=time.time() - 3 * 3600)
+            )
+
+            await client.async_ensure_session_valid("pw")
+
+            assert mocked.get_calls[SYNERGIA_REFRESH_TOKEN_URL] == 1
+            assert SYNERGIA_PORTAL_LOGIN_URL not in mocked.get_calls
+            assert client.session_age_seconds is not None and client.session_age_seconds < 5
+            assert len(updates) == 1
+
+
+async def test_failed_refresh_falls_back_to_login_when_expired() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(SYNERGIA_REFRESH_TOKEN_URL, status=302, text_data="")
+            mock_successful_login(session, mocked)
+            client = LibrusApiClient(session, "1234567u")
+            client.import_session(
+                LibrusSessionData(cookies=[], logged_in_at=time.time() - 30 * 3600)
+            )
+            session.cookie_jar.update_cookies(
+                SimpleCookie("oauth_token=abc"), URL("https://synergia.librus.pl/")
+            )
+
+            await client.async_ensure_session_valid("pw")
+
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 1
+
+
+async def test_download_message_attachment() -> None:
+    link = "https://sandbox.librus.pl/GetFile/KEY"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{MESSAGES_BASE_URL}/attachments/55/messages/99",
+                json_data={"data": {"status": "ok", "downloadLink": link}},
+            )
+            mocked.get(link, text_data="<html>wait</html>", headers={"Content-Type": "text/html"})
+            mocked.get(
+                f"{link}/get",
+                body=b"%PDF-1.4 test",
+                headers={
+                    "Content-Type": "application/pdf",
+                    "Content-Disposition": 'attachment; filename="Plan lekcji.pdf"',
+                },
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            file = await client.async_download_message_attachment("55", "99")
+
+            assert file.filename == "Plan lekcji.pdf"
+            assert file.content_type == "application/pdf"
+            assert file.content == b"%PDF-1.4 test"

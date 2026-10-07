@@ -74,6 +74,8 @@ If any response body in steps 3–4 contains a captcha marker (`captcha`,
   keeps working afterwards (confirmed live 2026-10-07). Calling it before the
   session dies should extend it without a password login. ❓ How long the
   extended session lasts was not measured. `Me` also reports `Refresh: 900`.
+  `async_ensure_session_valid` calls it (`async_refresh_session`) once the
+  session is 2 hours old and falls back to a password login if it fails.
 - ✅ The session can die **before** 24 h. The client assumes a 20 h
   lifetime, and on an HTTP 401 from a data endpoint it logs in again once
   and retries. `Librus` does this for you.

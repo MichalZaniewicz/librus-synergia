@@ -527,3 +527,115 @@ def test_parse_justifications_newest_first_with_status() -> None:
 def test_justified_dates_skip_rejected() -> None:
     days = parsers.justified_dates(parsers.parse_justifications(JUSTIFICATIONS))
     assert days == {"2026-09-04", "2026-09-14", "2026-09-15", "2026-09-16"}
+
+
+def test_parse_text_grades_with_categories() -> None:
+    categories = parsers.parse_text_grade_categories(
+        {"Categories": [{"Id": 5, "Name": "zadanie", "CountToTheAverage": True}]}
+    )
+    grades = parsers.parse_text_grades(
+        {
+            "Grades": [
+                {
+                    "Id": 1,
+                    "Grade": "Bardzo dobrze opanowany materiał",
+                    "Subject": {"Id": 9},
+                    "Lesson": {"Id": 3},
+                    "Category": {"Id": 5},
+                    "AddedBy": {"Id": 7},
+                    "Date": "2026-09-18",
+                    "AddDate": "2026-09-18 11:25:36",
+                    "Semester": 1,
+                    "ShowInGradesView": True,
+                },
+                {"Id": 2, "Grade": "ukryta", "ShowInGradesView": False},
+            ]
+        },
+        categories,
+    )
+    assert len(grades) == 1
+    grade = grades[0]
+    assert grade.value == "Bardzo dobrze opanowany materiał"
+    assert (grade.subject_id, grade.category, grade.teacher_id) == (9, "zadanie", 7)
+    assert grade.counts_to_average is True
+
+
+def test_parse_realizations_resolves_subject() -> None:
+    topics = parsers.parse_realizations(
+        {
+            "Realizations": [
+                {
+                    "Id": "t1",
+                    "Lesson": {"Id": 3},
+                    "LessonNumber": 2,
+                    "LessonNo": 2,
+                    "Date": "2026-09-15",
+                    "Topic": " Ułamki zwykłe ",
+                    "IsTrip": False,
+                    "AddedBy": {"Id": 7},
+                },
+                {
+                    "Id": "t2",
+                    "Lesson": {"Id": 4},
+                    "LessonNumber": 5,
+                    "Date": "2026-09-16",
+                    "Topic": "Wyjście",
+                    "IsTrip": True,
+                },
+            ]
+        },
+        {3: 100},
+    )
+    assert [t.id for t in topics] == ["t2", "t1"]
+    assert topics[1].topic == "Ułamki zwykłe"
+    assert topics[1].subject_id == 100
+    assert topics[0].lesson_no == 5 and topics[0].is_trip and topics[0].subject_id is None
+
+
+def test_parse_school_trips_and_files() -> None:
+    trips = parsers.parse_school_trips(
+        {
+            "Data": [
+                {
+                    "id": 2,
+                    "destination": "Muzeum",
+                    "route": "Szkoła - Muzeum",
+                    "locomotion": "autokar",
+                    "termFrom": "2026-10-20",
+                    "termTo": "2026-10-20",
+                    "coordinatorName": "Nowak Anna",
+                },
+                {
+                    "id": 1,
+                    "destination": "Kino",
+                    "termFrom": "2026-09-23",
+                    "creatorName": "Jan",
+                    "creatorLastName": "Kowal",
+                },
+            ]
+        }
+    )
+    assert [t.id for t in trips] == [1, 2]
+    assert trips[0].coordinator == "Jan Kowal" and trips[0].date_to == "2026-09-23"
+    assert trips[1].transport == "autokar"
+    files = parsers.parse_school_files(
+        {
+            "Data": [
+                {
+                    "id": "17613",
+                    "displayName": "Regulamin",
+                    "addedOnDate": "2026-09-04 11:26:03",
+                    "downloadUrl": "/pliki_szkoly/pobierz/1",
+                },
+                {"id": "9", "displayName": "Zepsuty", "failed": True},
+            ]
+        }
+    )
+    assert [(f.id, f.name, f.download_path) for f in files] == [
+        ("17613", "Regulamin", "/pliki_szkoly/pobierz/1")
+    ]
+
+
+def test_class_register_number_from_user_record() -> None:
+    assert parsers.parse_user_class_register_number({"User": {"ClassRegisterNumber": 25}}) == 25
+    assert parsers.parse_user_class_register_number({}) is None

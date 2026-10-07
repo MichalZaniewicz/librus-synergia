@@ -29,6 +29,7 @@ from .models import (
     HomeworkEventData,
     JustificationData,
     LessonData,
+    LessonTopicData,
     LuckyNumberData,
     MeData,
     MessageData,
@@ -38,7 +39,10 @@ from .models import (
     PointGradeCategoryData,
     PointGradeData,
     SchoolData,
+    SchoolFileData,
     SchoolNoticeData,
+    SchoolTripData,
+    TextGradeData,
 )
 
 LID_USER_PREFIX = "LID-AUTH-USER-"
@@ -608,6 +612,8 @@ def parse_homework_assignments(payload: dict[str, Any]) -> list[HomeworkAssignme
                 teacher_id=teacher.get("Id"),
                 date=item.get("Date"),
                 due_date=item.get("DueDate"),
+                category_id=as_int((item.get("Category") or {}).get("Id")),
+                lesson_id=as_int((item.get("Lesson") or {}).get("Id")),
             )
         )
     return assignments
@@ -762,6 +768,146 @@ def parse_point_grades(
             )
         )
     return grades
+
+
+def _ref(item: dict[str, Any], key: str) -> int | None:
+    value = item.get(key)
+    return as_int(value.get("Id")) if isinstance(value, dict) else None
+
+
+def parse_text_grade_categories(payload: dict[str, Any]) -> dict[int, tuple[str, bool]]:
+    """`TextGrades/Categories` -> {id: (name, counts to the average)}."""
+    result: dict[int, tuple[str, bool]] = {}
+    for item in payload.get("Categories") or []:
+        if not isinstance(item, dict):
+            continue
+        category_id = as_int(item.get("Id"))
+        if category_id is not None:
+            result[category_id] = (str(item.get("Name") or ""), bool(item.get("CountToTheAverage")))
+    return result
+
+
+def parse_text_grades(
+    payload: dict[str, Any], categories: dict[int, tuple[str, bool]] | None = None
+) -> list[TextGradeData]:
+    """`BaseTextGrades` -> text grades (newest first). CONFIRMED live
+    2026-10-07; grades with `ShowInGradesView: false` are skipped."""
+    categories = categories or {}
+    result: list[TextGradeData] = []
+    for item in payload.get("Grades") or []:
+        if not isinstance(item, dict) or item.get("ShowInGradesView") is False:
+            continue
+        grade_id = as_int(item.get("Id"))
+        if grade_id is None:
+            continue
+        category_id = _ref(item, "Category")
+        category = categories.get(category_id) if category_id is not None else None
+        result.append(
+            TextGradeData(
+                id=grade_id,
+                value=str(item.get("Grade") or ""),
+                subject_id=_ref(item, "Subject"),
+                lesson_id=_ref(item, "Lesson"),
+                category_id=category_id,
+                category=category[0] if category else None,
+                teacher_id=_ref(item, "AddedBy"),
+                date=item.get("Date"),
+                add_date=item.get("AddDate"),
+                semester=as_int(item.get("Semester")),
+                counts_to_average=category[1] if category else False,
+            )
+        )
+    result.sort(key=lambda g: g.add_date or g.date or "", reverse=True)
+    return result
+
+
+def parse_realizations(
+    payload: dict[str, Any], lesson_subjects: dict[int, int] | None = None
+) -> list[LessonTopicData]:
+    """`Realizations` -> lessons held with their topics, newest first.
+    `lesson_subjects` (`parse_lesson_subjects`) fills in the subject.
+    CONFIRMED live 2026-10-07."""
+    lesson_subjects = lesson_subjects or {}
+    result: list[LessonTopicData] = []
+    for item in payload.get("Realizations") or []:
+        if not isinstance(item, dict) or item.get("Id") is None:
+            continue
+        lesson_id = _ref(item, "Lesson")
+        lesson_no = as_int(item.get("LessonNo"))
+        if lesson_no is None:
+            lesson_no = as_int(item.get("LessonNumber"))
+        result.append(
+            LessonTopicData(
+                id=str(item["Id"]),
+                date=item.get("Date"),
+                lesson_no=lesson_no,
+                lesson_id=lesson_id,
+                topic=str(item.get("Topic") or "").strip(),
+                is_trip=bool(item.get("IsTrip")),
+                teacher_id=_ref(item, "AddedBy"),
+                subject_id=lesson_subjects.get(lesson_id) if lesson_id is not None else None,
+            )
+        )
+    result.sort(key=lambda t: ((t.date or ""), t.lesson_no or 0), reverse=True)
+    return result
+
+
+def parse_school_trips(payload: dict[str, Any]) -> list[SchoolTripData]:
+    """`SchoolTrips` -> trips, soonest first. Lowercase fields inside a
+    `Data` list. CONFIRMED live 2026-10-07."""
+    result: list[SchoolTripData] = []
+    for item in payload.get("Data") or []:
+        if not isinstance(item, dict):
+            continue
+        trip_id = as_int(item.get("id"))
+        if trip_id is None:
+            continue
+        creator = " ".join(
+            str(part) for part in (item.get("creatorName"), item.get("creatorLastName")) if part
+        )
+        result.append(
+            SchoolTripData(
+                id=trip_id,
+                destination=str(item.get("destination") or "").strip(),
+                route=str(item.get("route") or "").strip(),
+                transport=str(item.get("locomotion") or "").strip(),
+                date_from=item.get("termFrom"),
+                date_to=item.get("termTo") or item.get("termFrom"),
+                coordinator=item.get("coordinatorName") or creator or None,
+            )
+        )
+    result.sort(key=lambda t: t.date_from or "")
+    return result
+
+
+def parse_school_files(payload: dict[str, Any]) -> list[SchoolFileData]:
+    """`SchoolFiles` -> documents shared by the school, newest first.
+    CONFIRMED live 2026-10-07."""
+    result: list[SchoolFileData] = []
+    for item in payload.get("Data") or []:
+        if not isinstance(item, dict) or item.get("id") is None:
+            continue
+        if item.get("failed") is True:
+            continue
+        result.append(
+            SchoolFileData(
+                id=str(item["id"]),
+                name=str(item.get("displayName") or "").strip(),
+                added=item.get("addedOnDate"),
+                download_path=item.get("downloadUrl"),
+            )
+        )
+    result.sort(key=lambda f: f.added or "", reverse=True)
+    return result
+
+
+def parse_user_class_register_number(payload: dict[str, Any]) -> int | None:
+    """`Users/{Me.Account.UserId}` -> the student's class register number
+    (`User.ClassRegisterNumber`). CONFIRMED live 2026-10-07."""
+    user = payload.get("User")
+    if not isinstance(user, dict):
+        return None
+    return as_int(user.get("ClassRegisterNumber"))
 
 
 def parse_justifications(payload: dict[str, Any]) -> list[JustificationData]:
