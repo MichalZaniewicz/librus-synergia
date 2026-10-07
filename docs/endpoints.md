@@ -49,7 +49,7 @@ Two things apply to every endpoint:
 
 | Endpoint | Root key | Notes |
 |---|---|---|
-| `Grades` | `Grades` | ✅ `Grade` (string), `Subject.Id`, `Category.Id`, `Semester`, `AddDate`, `IsSemesterProposition`, `IsFinalProposition`, `IsSemester`, `IsFinal`, `Comments`. ✅ `AddedBy.Id` is the teacher who added the grade (a `Users` id): on a real account all 15 grades resolved to the subject's own teacher. |
+| `Grades` | `Grades` | ✅ `Grade` (string), `Subject.Id`, `Category.Id`, `Semester`, `AddDate`, `IsSemesterProposition`, `IsFinalProposition`, `IsSemester`, `IsFinal`, `Comments`. ✅ `AddedBy.Id` is the teacher who added the grade (a `Users` id): on a real account all 15 grades resolved to the subject's own teacher. 📖 `Improvement.Id` on a correction ("poprawa") points at the earlier grade it improves; the earlier grade stays in the list. |
 | `Grades/Comments` | `Comments` | 📖 `[{"Id", "Text"}]`. `Grades[].Comments` is a list of **ids into this endpoint**, not embedded text. ✅ Real teacher comments on a real account resolve this way. ❓ Whether each list item is a bare id or an `{"Id": ...}` object was not captured, so accept both. |
 | `DescriptiveGrades` | `Grades` | 📖 `Subject`, `Skill`, `Category`, `Grade`, `AddDate`. Only when `Units` enables them. |
 | `PointGrades`, `TextGrades` | — | ✅ Reachable, empty on tested accounts. |

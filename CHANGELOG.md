@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `GradeData.improves_id`: for a correction ("poprawa"), the id of the
+  earlier grade it improves (`Grades[].Improvement.Id`, per
+  szkolny-android's reference parser - not yet seen in a live payload).
+
 ## 0.3.1
 
 ### Fixed

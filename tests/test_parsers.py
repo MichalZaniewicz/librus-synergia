@@ -152,6 +152,21 @@ def test_grade_teacher_from_added_by() -> None:
     assert missing.teacher_id is None
 
 
+def test_grade_improvement_points_at_earlier_grade() -> None:
+    old, new, plain = parsers.parse_grades(
+        {
+            "Grades": [
+                {"Id": 10, "Grade": "1"},
+                {"Id": 11, "Grade": "4", "Improvement": {"Id": 10, "Url": ".../Grades/10"}},
+                {"Id": 12, "Grade": "5", "Improvement": None},
+            ]
+        }
+    )
+    assert new.improves_id == 10
+    assert old.improves_id is None
+    assert plain.improves_id is None
+
+
 def test_school_notice_id_is_string() -> None:
     (notice,) = parsers.parse_school_notices(
         {"SchoolNotices": [{"Id": "LID-NBOARD-NOTICE-9093", "Subject": "Apel", "Content": "..."}]}

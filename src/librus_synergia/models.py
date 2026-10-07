@@ -62,6 +62,11 @@ class GradeData:
     # Who added the grade (`AddedBy.Id`, a `Users` id) - the field
     # szkolny-android's `LibrusApiGrades.kt` reads for the grade's teacher.
     teacher_id: int | None = None
+    # A correction ("poprawa"): `Improvement.Id` points at the earlier grade
+    # this one improves (szkolny-android's `LibrusApiGrades.kt`). The earlier
+    # grade stays in `/Grades`; whether it still counts towards the average is
+    # left to `IsConstituent`/the category, as for any other grade.
+    improves_id: int | None = None
 
 
 @dataclass(slots=True)
