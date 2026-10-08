@@ -75,6 +75,7 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 
 | Method | Returns |
 |---|---|
+| `login(force=False)` | sign in now (every method below logs in lazily on first use) |
 | `me()` | the student (`Me.User`), not the parent login |
 | `student_number()` | class register number (nr w dzienniku), from the student's `Users` record (web page as fallback) |
 | `grades()`, `grade_categories()` | grades with teacher comments resolved; weights and categories |
@@ -94,11 +95,12 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `download_attachment(attachment_id, message_id)` | a message attachment (name, type, bytes), without opening the message |
 | `announcements()` | school notice board (tablica ogłoszeń) |
 | `lucky_number()` | szczęśliwy numerek, with the day it applies to |
-| `unread_messages()`, `messages(mailbox, limit)` | unread count per mailbox; message previews (listing never marks read) |
+| `unread_messages()`, `messages(mailbox="inbox", *, limit=10)` | unread count per mailbox; message previews (listing never marks read) |
 | `message(id, mailbox)` | the full message body, which **marks it read** like opening it in the app |
 | `subjects()`, `teachers()`, `classrooms()` | id → name lookups |
 | `school()`, `school_class()` | school details; class, homeroom teacher and semester dates |
-| `fetch_all()` | everything above as one `LibrusData` snapshot |
+| `kindergartener_id()` | the child's `LID-AUTH-USER-...` on a kindergarten account, else `None` (`timetable()` uses it on its own) |
+| `fetch_all()` | most of the above as one `LibrusData` snapshot - not `student_number()`, `message()` or `download_attachment()`, and messages are the 10 latest from the inbox only |
 
 Every method logs in lazily and retries once after a fresh login if the session has expired. A session older than 2 hours is renewed through Librus's own `refreshToken`, so a long-running program doesn't log in with the password every day.
 
@@ -140,11 +142,12 @@ Use **one `Librus` instance and one `aiohttp.ClientSession` per account**. The l
 
 ## Low-level client
 
-`Librus` covers the common cases. For anything else, `librus.client` (a `LibrusApiClient`) has one method per endpoint, returning raw JSON. You can pair it with the pure functions in `librus_synergia.parsers`:
+`Librus` covers the common cases. For anything else, `librus.client` (a `LibrusApiClient`) has a method for every endpoint the library itself uses, returning raw JSON. Client methods don't log in on their own - call `await librus.login()` first if you haven't used a high-level method yet. You can pair it with the pure functions in `librus_synergia.parsers`:
 
 ```python
 from librus_synergia import parsers
 
+await librus.login()
 raw = await librus.client.async_get_units()                 # no high-level wrapper yet
 week = parsers.merge_timetables(await librus.client.async_get_timetable(date(2026, 9, 7)))
 ```
@@ -157,7 +160,7 @@ The **[unofficial Librus API notes](https://michalzaniewicz.github.io/librus-syn
 
 Everything raises a subclass of `LibrusError`:
 
-- `LibrusAuthError`: `LibrusInvalidCredentialsError`, `LibrusCaptchaRequiredError`, `LibrusAccountActionRequiredError`, `LibrusSessionExpiredError` (carries `status_code`)
+- `LibrusAuthError`: `LibrusInvalidCredentialsError`, `LibrusCaptchaRequiredError`, `LibrusSessionExpiredError` (carries `status_code`)
 - `LibrusConnectionError`: `LibrusServerMaintenanceError` (HTTP 503)
 - `LibrusUnexpectedResponseError`: a response shape we didn't expect
 

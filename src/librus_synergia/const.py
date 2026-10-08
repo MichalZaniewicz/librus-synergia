@@ -101,17 +101,15 @@ ENDPOINT_ATTENDANCES = "Attendances"
 # the real path is nested under Attendances (same pattern as
 # Grades/Categories), matching the `Attendances\Types\<id>` Url seen on
 # every Attendances[].Type. Response root key is "Types", not
-# "AttendanceTypes" - see coordinator.py's _parse_attendance_types.
+# "AttendanceTypes" - see parsers.parse_attendance_types.
 ENDPOINT_ATTENDANCE_TYPES = "Attendances/Types"
 ENDPOINT_TIMETABLES = "Timetables"
 ENDPOINT_HOMEWORKS = "HomeWorks"
 ENDPOINT_SCHOOL_NOTICES = "SchoolNotices"
 ENDPOINT_LUCKY_NUMBERS = "LuckyNumbers"
 
-# CONFIRMED live (2026-09-05) via scripts/manual_smoke_test.py. Kept
-# non-fatal in the coordinator anyway (falls back to raw numeric ids) since
-# a different school setup could still vary - see RustySnek/librus-apix's
-# README on that point.
+# CONFIRMED live (2026-09-05). Callers should still treat them as optional
+# lookups (fall back to the raw ids) - a different school setup could vary.
 ENDPOINT_SUBJECTS = "Subjects"
 ENDPOINT_TEACHERS = "Users"
 ENDPOINT_CLASSROOMS = "Classrooms"
@@ -129,14 +127,11 @@ ENDPOINT_LESSONS = "Lessons"
 
 # CONFIRMED reachable, distinct from HomeWorks (the general agenda/events
 # feed). Field names (Id/DueDate/Topic/Text/Teacher.Id/Date - notably NO
-# Subject field) CONFIRMED (2026-09-06) via szkolny-android's
-# LibrusApiHomework.kt, wired into LibrusHomeworkAssignmentsSensor - but
-# still never seen populated (empty on the test account since it was
-# first probed).
+# Subject field) CONFIRMED live with real assignments (2026-09-17).
 ENDPOINT_HOMEWORK_ASSIGNMENTS = "HomeWorkAssignments"
 
 # CONFIRMED live (2026-09-05), all real and reachable via a normal
-# parent/student login - see scripts/manual_smoke_test.py. TeacherFreeDays
+# parent/student login. TeacherFreeDays
 # and Substitutions were ALSO tried and both 403 for this account type
 # (likely staff/teacher-only permissions) - not included here.
 ENDPOINT_SCHOOLS = "Schools"
@@ -148,23 +143,14 @@ ENDPOINT_HOMEWORK_CATEGORIES = "HomeWorks/Categories"
 ENDPOINT_PARENT_TEACHER_CONFERENCES = "ParentTeacherConferences"
 ENDPOINT_GRADE_TYPES = "Grades/Types"
 
-# CONFIRMED live (2026-09-06), found by reading szkolny-eu/szkolny-android's
-# full LibrusApi*.kt file list (not just the higher-level LibrusFeatures.kt
-# flags used for the previous round) - see CLAUDE.md's session note.
-#
-# Notes/Categories: CONFIRMED real+POPULATED (8 real category names on this
-# account) - wired into the coordinator immediately, see
-# _cached_note_categories.
-#
-# Everything else below is CONFIRMED real+reachable but returned EMPTY on
-# this account - same "confirmed but nothing to build a parser against yet"
-# treatment as VirtualClasses/ParentTeacherConferences/HomeWorkAssignments.
-# Client methods exist for probing; none are wired into the coordinator.
+# CONFIRMED live (2026-09-06). Notes/Categories is populated (category
+# names for behaviour notes); see docs/endpoints.md for the state of each
+# endpoint below.
 ENDPOINT_NOTE_CATEGORIES = "Notes/Categories"
 # "Ocena zachowania" (a formal behaviour grade, e.g. wzorowe/bardzo dobre) -
-# genuinely distinct from Notes ("uwagi", free-text remarks). This school's
-# BehaviourGradesSettings (see Units) confirms it uses a points-based
-# variant of this.
+# genuinely distinct from Notes ("uwagi", free-text remarks). Points
+# schools use Value/ShortName; a classic-scale grade comes as
+# BehaviourGrade.Id (confirmed live).
 ENDPOINT_BEHAVIOUR_GRADES_POINTS = "BehaviourGrades/Points"
 ENDPOINT_BEHAVIOUR_GRADES_POINTS_CATEGORIES = "BehaviourGrades/Points/Categories"
 # CONFIRMED live (2026-09-06) same {"Comments": [{"Id", "Text"}]} shape as
@@ -176,22 +162,17 @@ ENDPOINT_BEHAVIOUR_GRADES_POINTS_COMMENTS = "BehaviourGrades/Points/Comments"
 # LibrusApiBehaviourGrades.kt to be a SEPARATE endpoint from /Grades,
 # root key "Comments", items shaped {"Id", "Text"} - and each /Grades
 # item's own `Comments` field is a list of ids into this, NOT embedded
-# {"Text": ...} objects as coordinator.py's _parse_grades previously
-# assumed (FIXED 2026-09-06, see _resolve_comment_ids). Still not verified
-# against a real populated example (empty on this account either way) -
-# _resolve_comment_ids handles both a bare-int-id list and an
-# {"Id": ...}-object list defensively, and falls back to the old
-# embedded-{"Text"} shape too, so nothing regresses if that turns out
-# right after all.
+# {"Text": ...} objects. Real comments resolve this way (confirmed live);
+# whether each id is a bare int or an {"Id": ...} object wasn't captured,
+# so the parser accepts both (and an embedded {"Text"} too).
 ENDPOINT_GRADE_COMMENTS = "Grades/Comments"
 # School/unit configuration - which grade systems are enabled
 # (GradesSettings.{Standard,Point,Descriptive}GradesEnabled), bell schedule,
 # behaviour-points settings. CONFIRMED this account's school has
 # PointGradesEnabled=false but DescriptiveGradesEnabled=true.
 ENDPOINT_UNITS = "Units"
-# Alternate grading systems, alongside the numeric one this integration
-# already supports. PointGrades is confirmed NOT enabled for this account's
-# school (see Units above) - kept here for completeness/other schools.
+# Point grades, for schools with Units' GradesSettings.PointGradesEnabled
+# (see parsers.point_grades_enabled).
 ENDPOINT_POINT_GRADES = "PointGrades"
 # Absence justifications submitted by the parent (CONFIRMED live 2026-10-07):
 # a lowercase `{"status", "message", "data": [...]}` envelope.

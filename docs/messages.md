@@ -15,8 +15,8 @@ Run this with the main session cookies. It sets the cookies for
 - ✅ If the body contains **`Brak dostępu`**, the school has no messages
   module. That is a normal outcome, not an error.
 - ✅ The messages session **expires independently of the main session,
-  and much more often** (sometimes within the hour). On any failure,
-  bootstrap again and retry once.
+  and much more often** (sometimes within the hour). On any failure
+  except a 404 (no such mailbox), bootstrap again and retry once.
 
 ## Endpoints
 

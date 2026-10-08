@@ -253,7 +253,7 @@ class LibrusApiClient:
         """Run the full login handshake (portalRodzina -> Authorization form
         POST -> manual redirect chain), confirming a session cookie was set.
 
-        Raises one of the `librus_api` exceptions on failure. On success,
+        Raises one of this library's exceptions on failure. On success,
         persists the resulting cookies via `on_session_update` (if set) and
         returns them too.
         """
@@ -524,15 +524,12 @@ class LibrusApiClient:
         return await self._async_request(ENDPOINT_LUCKY_NUMBERS)
 
     async def async_get_subjects(self) -> dict[str, Any]:
-        """UNVERIFIED endpoint name - see scripts/manual_smoke_test.py."""
         return await self._async_request(ENDPOINT_SUBJECTS)
 
     async def async_get_teachers(self) -> dict[str, Any]:
-        """UNVERIFIED endpoint name - see scripts/manual_smoke_test.py."""
         return await self._async_request(ENDPOINT_TEACHERS)
 
     async def async_get_classrooms(self) -> dict[str, Any]:
-        """UNVERIFIED endpoint name - see scripts/manual_smoke_test.py."""
         return await self._async_request(ENDPOINT_CLASSROOMS)
 
     async def async_get_lessons(self) -> dict[str, Any]:
@@ -564,8 +561,8 @@ class LibrusApiClient:
         return await self._async_request(ENDPOINT_HOMEWORK_CATEGORIES)
 
     async def async_get_parent_teacher_conferences(self) -> dict[str, Any]:
-        """Wired into LibrusAgendaCalendar as a defensive extra merge - see
-        ParentTeacherConferenceData's docstring."""
+        """Parent-teacher meetings. The same meetings usually also come
+        through `HomeWorks` (the agenda) - see ParentTeacherConferenceData."""
         return await self._async_request(ENDPOINT_PARENT_TEACHER_CONFERENCES)
 
     async def async_get_grade_types(self) -> dict[str, Any]:
@@ -576,15 +573,13 @@ class LibrusApiClient:
         return await self._async_request(ENDPOINT_GRADE_TYPES)
 
     async def async_get_note_categories(self) -> dict[str, Any]:
-        """CONFIRMED live (2026-09-06) with real, populated data - wired
-        into the coordinator's reference-data refresh."""
+        """Behaviour note categories (confirmed live, populated)."""
         return await self._async_request(ENDPOINT_NOTE_CATEGORIES)
 
     async def async_get_behaviour_grade_points(self) -> dict[str, Any]:
         """ "Ocena zachowania" (formal behaviour grade) - distinct from
-        Notes ("uwagi"). CONFIRMED reachable, empty on this account so
-        far - wired into LibrusBehaviourGradeSensor via coordinator.py's
-        core-data fetch."""
+        Notes ("uwagi"). Confirmed live: a classic-scale grade comes as
+        `BehaviourGrade.Id`, a points school uses `Value`/`ShortName`."""
         return await self._async_request(ENDPOINT_BEHAVIOUR_GRADES_POINTS)
 
     async def async_get_behaviour_grade_point_categories(self) -> dict[str, Any]:
@@ -595,14 +590,14 @@ class LibrusApiClient:
 
     async def async_get_grade_comments(self) -> dict[str, Any]:
         """CONFIRMED live to be a SEPARATE endpoint from /Grades - see
-        const.py's ENDPOINT_GRADE_COMMENTS. Wired into _parse_grades'
-        comment-id correlation."""
+        const.py's ENDPOINT_GRADE_COMMENTS. `parsers.parse_grades` resolves
+        each grade's comment ids against it."""
         return await self._async_request(ENDPOINT_GRADE_COMMENTS)
 
     async def async_get_units(self) -> dict[str, Any]:
         """School/unit configuration (which grade systems are enabled, bell
-        schedule, behaviour-points settings). CONFIRMED real+populated, not
-        wired into the coordinator/any entity yet."""
+        schedule, behaviour-points settings). Confirmed live; see
+        `parsers.point_grades_enabled`."""
         return await self._async_request(ENDPOINT_UNITS)
 
     async def async_get_point_grades(self) -> dict[str, Any]:
@@ -641,14 +636,14 @@ class LibrusApiClient:
         return await self._async_request(ENDPOINT_POINT_GRADE_CATEGORIES)
 
     async def async_get_descriptive_grades(self) -> dict[str, Any]:
-        """CONFIRMED enabled for this account's school (see Units'
-        GradesSettings.DescriptiveGradesEnabled) - wired into
-        LibrusDescriptiveGradesSensor."""
+        """Descriptive grades, for schools with Units'
+        GradesSettings.DescriptiveGradesEnabled."""
         return await self._async_request(ENDPOINT_DESCRIPTIVE_GRADES)
 
     async def async_get_text_grades(self) -> dict[str, Any]:
-        """Enablement for this account's school unknown (no config flag
-        seen either way in Units) - not wired into any entity."""
+        """The older `TextGrades` endpoint. Real text grades on the tested
+        account came only through `BaseTextGrades` - see
+        `async_get_base_text_grades`."""
         return await self._async_request(ENDPOINT_TEXT_GRADES)
 
     # ------------------------------------------------------------------
@@ -659,12 +654,10 @@ class LibrusApiClient:
     # to mark the message read server-side in the real Librus inbox - the
     # `readDate` field flips from null to a real timestamp immediately
     # after one GET, on a message that stayed unread across many prior
-    # LIST-endpoint polls. This is exactly why it is NOT called from the
-    # coordinator's routine polling (which only ever uses the list/count
-    # endpoints above, matching "listing never marks anything read") -
-    # it exists solely for `services.py`'s `get_message` service, invoked
-    # only on a user's own deliberate action (clicking a message in a
-    # card), same as opening a message in the real Librus app.
+    # LIST-endpoint polls. Listing and counting never mark anything read,
+    # so routine polling should use only those; call `async_get_message`
+    # only on a user's deliberate action, the same as opening a message in
+    # the Librus app.
     # ------------------------------------------------------------------
 
     async def async_get_student_info_page(self) -> str:
@@ -700,7 +693,7 @@ class LibrusApiClient:
 
         Returns False (not an error) if this account's school doesn't have
         the messages module enabled - some don't. Caller decides how often
-        to call this (see coordinator.py); this method does no caching.
+        to call this (`Librus` does it once per login); this method does no caching.
         """
         try:
             async with self._session.get(
@@ -742,11 +735,10 @@ class LibrusApiClient:
         marks the message read and must only be called from deliberate
         user action.
 
-        Also CONFIRMED live (2026-09-06, found by the user in a card's
-        expanded view): the decoded `Message` field isn't plain text - it's
+        Also CONFIRMED live (2026-09-06): the decoded `Message` field isn't plain text - it's
         wrapped in a tiny XML shell,
         `<Message><Content><![CDATA[the real text...]]></Content></Message>`.
-        `coordinator.decode_message_content` strips this; do not decode
+        `parsers.decode_message_content` strips this; do not decode
         this field any other way or the literal XML markup leaks into the
         UI.
         """
