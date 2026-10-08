@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.7
 
 ### Added
 - **The standing weekly plan:** `Librus.standing_timetable()`
