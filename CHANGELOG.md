@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.8
+
+No code changes.
+
+### Changed
+- **The PyPI page:** the README's trailer (now a 4.4 MB WebP) and a new
+  "Don't want to read? Watch the video" section with a 2.5-minute demo. On
+  PyPI, which can't play video, the player becomes a clickable thumbnail;
+  relative links become absolute and the GitHub-only `[!TIP]` marker is
+  dropped (`hatch-fancy-pypi-readme` at build time).
+
 ## 0.3.7
 
 ### Added
