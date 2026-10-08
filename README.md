@@ -13,6 +13,10 @@
 
 An unofficial, async, fully typed Python client for [Librus Synergia](https://synergia.librus.pl/), the Polish school e-register ("e-dziennik"). It covers grades, attendance, timetable, agenda, homework, behaviour notes, announcements, the lucky number and private messages.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/MichalZaniewicz/librus-synergia/main/docs/trailer.webp" alt="librus-synergia trailer: install, log in, typed data, the command line">
+</p>
+
 This is the engine behind the [Librus Synergia Home Assistant integration](https://github.com/MichalZaniewicz/ha-librus-synergia), extracted so anyone can use it: in scripts, bots, dashboards or their own apps.
 
 > [!TIP]
