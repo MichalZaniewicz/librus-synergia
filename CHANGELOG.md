@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.6
+
+### Fixed
+- Text grades (`text_grades()`, `TextGradeData.value`): the line breaks and
+  indentation Librus keeps in the teacher's text are collapsed to single
+  spaces ("diagnoza GWO - sesja I 80%" instead of a line break followed by six
+  spaces).
+
 ## 0.3.5
 
 ### Added

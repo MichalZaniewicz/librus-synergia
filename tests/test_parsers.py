@@ -538,7 +538,7 @@ def test_parse_text_grades_with_categories() -> None:
             "Grades": [
                 {
                     "Id": 1,
-                    "Grade": "Bardzo dobrze opanowany materiał",
+                    "Grade": "Bardzo dobrze opanowany\n      materiał",
                     "Subject": {"Id": 9},
                     "Lesson": {"Id": 3},
                     "Category": {"Id": 5},

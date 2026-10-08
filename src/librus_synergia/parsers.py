@@ -805,7 +805,9 @@ def parse_text_grades(
         result.append(
             TextGradeData(
                 id=grade_id,
-                value=str(item.get("Grade") or ""),
+                # Librus keeps the teacher's line breaks and indentation
+                # ("...sesja I\n      80%", seen live) - collapse them.
+                value=" ".join(str(item.get("Grade") or "").split()),
                 subject_id=_ref(item, "Subject"),
                 lesson_id=_ref(item, "Lesson"),
                 category_id=category_id,
