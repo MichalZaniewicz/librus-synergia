@@ -66,9 +66,10 @@ If any response body in steps 3–4 contains a captcha marker (`captcha`,
 "cookies for `https://api.librus.pl/`" does **not** return it. Walk the jar
 (or filter for an `/OAuth/...` URL) when you persist the session.
 
-- There is **no refresh token**. When `oauth_token` expires you have to log
-  in again with the password, so unattended long-running use needs the
-  password stored.
+- There is **no OAuth refresh token** to keep instead of the password. A
+  live session can be extended (next point), but once `oauth_token` has
+  expired you have to log in again with the password, so unattended
+  long-running use needs the password stored.
 - ✅ `GET https://synergia.librus.pl/refreshToken` (with the session cookies)
   answers 200 with an empty body and a **new `oauth_token`** cookie; the API
   keeps working afterwards (confirmed live 2026-10-07). Calling it before the

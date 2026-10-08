@@ -124,7 +124,7 @@ Kindergarten (przedszkole) accounts don't have the regular timetable: Librus ans
 
 ## Keeping the session between runs
 
-Librus sessions last about a day and there is no refresh token. Persist `librus.session_data` and pass it back to avoid logging in on every run. It also keeps Librus's year-long device cookie, which is what keeps logins captcha-free:
+A Librus session lasts about a day unless it is renewed: the client refreshes it through Librus's `/refreshToken` once it is two hours old, but a session that has already lapsed needs a new password login. Persist `librus.session_data` and pass it back to avoid logging in on every run. It also keeps Librus's year-long device cookie, which is what keeps logins captcha-free:
 
 ```python
 from dataclasses import asdict
