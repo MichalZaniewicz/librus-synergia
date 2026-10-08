@@ -1,12 +1,11 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-fancy-pypi-readme>=24"]
 build-backend = "hatchling.build"
 
 [project]
 name = "librus-synergia"
-dynamic = ["version"]
+dynamic = ["version", "readme"]
 description = "Unofficial async Python client for Librus Synergia (Polish school e-gradebook)"
-readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Michał Zaniewicz" }]
@@ -61,3 +60,32 @@ ignore = ["E501"]
 strict = true
 packages = ["librus_synergia"]
 mypy_path = "src"
+
+# PyPI's description is README.md with what pypi.org can't render swapped out:
+# the GitHub-only video player becomes a clickable thumbnail, the [!TIP] alert
+# marker goes, relative links become absolute.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '🔊 The player starts muted[^\n]*\n\n'
+replacement = ''
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '> \[!TIP\]\n'
+replacement = ''
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(?m)^https://github\.com/user-attachments/assets/[\w-]+$'
+replacement = '[![Watch the librus-synergia video](https://raw.githubusercontent.com/MichalZaniewicz/librus-synergia/main/docs/demo-thumbnail.jpg)](https://github.com/MichalZaniewicz/librus-synergia#dont-want-to-read-watch-the-video)'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?://|#)([^)]+)\)'
+replacement = '](https://github.com/MichalZaniewicz/librus-synergia/blob/main/\1)'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = 'href="(?!https?://|#)([^"]+)"'
+replacement = 'href="https://github.com/MichalZaniewicz/librus-synergia/blob/main/\1"'

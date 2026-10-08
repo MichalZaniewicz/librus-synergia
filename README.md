@@ -14,12 +14,6 @@
 
 An unofficial, async, fully typed Python client for [Librus Synergia](https://synergia.librus.pl/), the Polish school e-register ("e-dziennik"). It covers grades, attendance, timetable, agenda, homework, behaviour notes, announcements, the lucky number and private messages.
 
-
-
-https://github.com/user-attachments/assets/f35d63d2-2992-4c81-b07e-9108396fb0b0
-
-
-
 This is the engine behind the [Librus Synergia Home Assistant integration](https://github.com/MichalZaniewicz/ha-librus-synergia), extracted so anyone can use it: in scripts, bots, dashboards or their own apps.
 
 > [!TIP]
@@ -29,10 +23,20 @@ This is the engine behind the [Librus Synergia Home Assistant integration](https
 
 [![Star this repo](https://img.shields.io/github/stars/MichalZaniewicz/librus-synergia?style=for-the-badge&logo=github&label=STAR%20THIS%20REPO&labelColor=555555&color=ffc107)](https://github.com/MichalZaniewicz/librus-synergia) [![Buy me a coffee](https://img.shields.io/badge/BUY%20ME%20A%20COFFEE-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/zanula)
 
+## Don't want to read? Watch the video
+
+Two and a half minutes: install, the command line, the Python API, the parsers, ChangeTracker, unattended sessions and the API notes. English voice-over, Polish subtitles.
+
+🔊 The player starts muted, so click the speaker icon for the voice-over.
+
+https://github.com/user-attachments/assets/f35d63d2-2992-4c81-b07e-9108396fb0b0
+
 ## Why another Librus library?
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/MichalZaniewicz/librus-synergia/main/docs/trailer.webp" alt="librus-synergia trailer: install, log in, typed data, the command line">
 </p>
+
 - **Uses the current login flow.** The old OAuth password grant (`client_id=28`) has returned `unsupported_grant_type` since 2026. This library uses the flow Librus's own web portal uses, with no captcha on a normal login.
 - **Parses real responses, not guesses.** The parsers are built from real account responses and cover the traps: timetables are nested period slots, ids are sometimes ints and sometimes strings, `FirstName` can be `null`, message bodies are truncated base64 wrapped in CDATA, and more. See [the API notes](https://michalzaniewicz.github.io/librus-synergia/).
 - **Runs unattended.** It persists the session and the long-lived device cookie, logs in again automatically when Librus drops the session early, and treats an unpublished timetable (HTTP 403) as "no timetable yet" rather than an error.
