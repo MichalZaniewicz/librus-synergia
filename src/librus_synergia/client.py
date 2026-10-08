@@ -62,6 +62,7 @@ from .const import (
     ENDPOINT_TEACHERS,
     ENDPOINT_TEXT_GRADE_CATEGORIES,
     ENDPOINT_TEXT_GRADES,
+    ENDPOINT_TIMETABLE_ENTRIES,
     ENDPOINT_TIMETABLES,
     ENDPOINT_UNITS,
     ENDPOINT_VIRTUAL_CLASSES,
@@ -621,6 +622,10 @@ class LibrusApiClient:
 
     async def async_get_school_files(self) -> dict[str, Any]:
         return await self._async_request(ENDPOINT_SCHOOL_FILES)
+
+    async def async_get_timetable_entries(self) -> dict[str, Any]:
+        """The standing weekly plan, see `parse_timetable_entries`."""
+        return await self._async_request(ENDPOINT_TIMETABLE_ENTRIES)
 
     async def async_get_homework_assignment_categories(self) -> dict[str, Any]:
         return await self._async_request(ENDPOINT_HOMEWORK_ASSIGNMENT_CATEGORIES)

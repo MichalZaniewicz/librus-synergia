@@ -559,6 +559,52 @@ class ParentTeacherConferenceData:
 
 
 @dataclass(slots=True)
+class StandingLessonData:
+    """One slot of the standing weekly plan (`TimetableEntries`), CONFIRMED
+    live 2026-10-08: unlike `Timetables` it has no dated weeks, just a
+    weekday (1 = Monday), a lesson number and the dates the slot is valid
+    for. On a tested account every entry pointed at one of the student's
+    own `Lessons` and, once filtered by its dates, matched the real weeks
+    slot for slot. `subject_id` is resolved through `Lessons`."""
+
+    id: int
+    lesson_id: int | None
+    day_of_week: int
+    lesson_no: int | None
+    date_from: str | None
+    date_to: str | None
+    classroom_id: int | None = None
+    classroom: str | None = None
+    subject_id: int | None = None
+
+    def valid_on(self, day: date) -> bool:
+        iso = day.isoformat()
+        return (self.date_from is None or self.date_from[:10] <= iso) and (
+            self.date_to is None or iso <= self.date_to[:10]
+        )
+
+
+@dataclass(slots=True)
+class PlanDifferenceData:
+    """A lesson slot of a real week that differs from the standing plan.
+    `kind` is one of: `cancelled` (the lesson is in the timetable but
+    cancelled), `missing` (in the plan, not in the timetable at all),
+    `extra` (in the timetable, not in the plan), `subject` (another subject
+    than planned), `room` (same subject, another room), `no_lessons` (a
+    weekday with planned lessons but none in the timetable; `lesson_no` is
+    None and `free_day` names the day off when Librus has one)."""
+
+    date: date
+    lesson_no: int | None
+    kind: str
+    planned_subject_id: int | None = None
+    subject_id: int | str | None = None
+    planned_classroom: str | None = None
+    classroom_id: int | str | None = None
+    free_day: str | None = None
+
+
+@dataclass(slots=True)
 class LibrusData:
     """A full snapshot of one student's data (see `Librus.fetch_all`)."""
 
@@ -609,6 +655,8 @@ class LibrusData:
     # belongs to (Attendances itself carries no Subject field). See
     # const.py's ENDPOINT_LESSONS note for how this was confirmed.
     lesson_subjects: dict[int, int] = field(default_factory=dict)
+    # The standing weekly plan (`TimetableEntries`); see `plan_differences`.
+    standing_timetable: list[StandingLessonData] = field(default_factory=list)
 
 
 @dataclass(slots=True)

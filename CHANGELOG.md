@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **The standing weekly plan:** `Librus.standing_timetable()`
+  (`TimetableEntries`): every lesson slot by weekday and lesson number, with
+  the dates it is valid for, its room, and the subject resolved through
+  `Lessons`. `StandingLessonData`, `parse_timetable_entries`, and
+  `LibrusData.standing_timetable` in `fetch_all()`.
+- **How a week differs from the plan:** `parsers.plan_differences(timetable,
+  standing, free_days)` compares real weeks with the standing plan, slot by
+  slot: `cancelled`, `missing`, `extra`, `subject`, `room`, and `no_lessons`
+  for a weekday without lessons (with the free day's name when Librus has
+  one). `PlanDifferenceData`.
+
 ## 0.3.6
 
 ### Fixed

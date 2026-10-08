@@ -36,12 +36,14 @@ from .models import (
     NoteData,
     OriginalLessonData,
     ParentTeacherConferenceData,
+    PlanDifferenceData,
     PointGradeCategoryData,
     PointGradeData,
     SchoolData,
     SchoolFileData,
     SchoolNoticeData,
     SchoolTripData,
+    StandingLessonData,
     TextGradeData,
 )
 
@@ -851,6 +853,140 @@ def parse_realizations(
             )
         )
     result.sort(key=lambda t: ((t.date or ""), t.lesson_no or 0), reverse=True)
+    return result
+
+
+def parse_timetable_entries(
+    payload: dict[str, Any], lesson_subjects: dict[int, int] | None = None
+) -> list[StandingLessonData]:
+    """`TimetableEntries` -> the standing weekly plan. `lesson_subjects`
+    (`parse_lesson_subjects`) fills in the subject. An entry is valid only
+    between its `DateFrom` and `DateTo` (`StandingLessonData.valid_on`) -
+    the plan changes during the year, and old and new versions of a slot
+    are both listed. CONFIRMED live 2026-10-08."""
+    lesson_subjects = lesson_subjects or {}
+    result: list[StandingLessonData] = []
+    for item in payload.get("TimetableEntries") or []:
+        if not isinstance(item, dict):
+            continue
+        entry_id = as_int(item.get("Id"))
+        day = as_int(item.get("DayOfTheWeek"))
+        if entry_id is None or day is None:
+            continue
+        lesson_id = _ref(item, "Lesson")
+        raw_classroom = item.get("Classroom")
+        classroom: dict[str, Any] = raw_classroom if isinstance(raw_classroom, dict) else {}
+        result.append(
+            StandingLessonData(
+                id=entry_id,
+                lesson_id=lesson_id,
+                day_of_week=day,
+                lesson_no=as_int(item.get("LessonNo")),
+                date_from=item.get("DateFrom"),
+                date_to=item.get("DateTo"),
+                classroom_id=as_int(classroom.get("Id")),
+                classroom=(classroom.get("Name") or classroom.get("Symbol") or None),
+                subject_id=lesson_subjects.get(lesson_id) if lesson_id is not None else None,
+            )
+        )
+    result.sort(key=lambda e: (e.day_of_week, e.lesson_no or 0))
+    return result
+
+
+def plan_differences(
+    timetable: dict[date, list[LessonData]],
+    standing: list[StandingLessonData],
+    free_days: list[FreeDayData] | None = None,
+) -> list[PlanDifferenceData]:
+    """How the fetched weeks of `timetable` differ from the standing plan,
+    slot by slot (see `PlanDifferenceData` for the kinds). Days with no
+    plan and no lessons (weekends) are skipped; a weekday with a plan but
+    no lessons at all is one `no_lessons` entry instead of one per slot.
+    An empty `standing` list gives no differences."""
+    if not standing:
+        return []
+
+    def free_day_name(day: date) -> str | None:
+        iso = day.isoformat()
+        for free in free_days or []:
+            if (free.date_from or "")[:10] <= iso <= (free.date_to or "")[:10]:
+                return free.name
+        return None
+
+    result: list[PlanDifferenceData] = []
+    for day in sorted(timetable):
+        planned = [s for s in standing if s.day_of_week == day.isoweekday() and s.valid_on(day)]
+        lessons = timetable[day]
+        if not planned:
+            for lesson in lessons:
+                result.append(
+                    PlanDifferenceData(
+                        date=day,
+                        lesson_no=lesson.lesson_no,
+                        kind="cancelled" if lesson.is_canceled else "extra",
+                        subject_id=lesson.subject_id,
+                        classroom_id=lesson.classroom_id,
+                    )
+                )
+            continue
+        if not lessons:
+            result.append(
+                PlanDifferenceData(
+                    date=day, lesson_no=None, kind="no_lessons", free_day=free_day_name(day)
+                )
+            )
+            continue
+        slots = sorted(
+            {s.lesson_no for s in planned} | {lesson.lesson_no for lesson in lessons},
+            key=lambda n: (n is None, n or 0),
+        )
+        for lesson_no in slots:
+            plan_here = [s for s in planned if s.lesson_no == lesson_no]
+            here = [lesson for lesson in lessons if lesson.lesson_no == lesson_no]
+            if not here:
+                for slot in {s.subject_id: s for s in plan_here}.values():
+                    result.append(
+                        PlanDifferenceData(
+                            date=day,
+                            lesson_no=lesson_no,
+                            kind="missing",
+                            planned_subject_id=slot.subject_id,
+                            planned_classroom=slot.classroom,
+                        )
+                    )
+                continue
+            planned_subjects = {s.subject_id: s for s in plan_here}
+            for lesson in here:
+                subject = as_int(lesson.subject_id)
+                match = planned_subjects.get(subject)
+                first = next(iter(planned_subjects.values()), None)
+                kind = None
+                if lesson.is_canceled:
+                    kind = "cancelled"
+                elif not plan_here:
+                    kind = "extra"
+                elif match is None:
+                    kind = "subject"
+                elif (
+                    match.classroom_id is not None
+                    and as_int(lesson.classroom_id) is not None
+                    and as_int(lesson.classroom_id) != match.classroom_id
+                ):
+                    kind = "room"
+                if kind is None:
+                    continue
+                reference = match or first
+                result.append(
+                    PlanDifferenceData(
+                        date=day,
+                        lesson_no=lesson_no,
+                        kind=kind,
+                        planned_subject_id=reference.subject_id if reference else None,
+                        subject_id=lesson.subject_id,
+                        planned_classroom=reference.classroom if reference else None,
+                        classroom_id=lesson.classroom_id,
+                    )
+                )
     return result
 
 

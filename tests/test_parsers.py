@@ -9,6 +9,7 @@ from datetime import date
 import pytest
 
 from librus_synergia import parsers
+from librus_synergia.models import FreeDayData, LessonData
 from librus_synergia.parsers import parse_grade_value
 
 
@@ -639,3 +640,112 @@ def test_parse_school_trips_and_files() -> None:
 def test_class_register_number_from_user_record() -> None:
     assert parsers.parse_user_class_register_number({"User": {"ClassRegisterNumber": 25}}) == 25
     assert parsers.parse_user_class_register_number({}) is None
+
+
+_ENTRIES = {
+    "TimetableEntries": [
+        # Monday: lesson 1 maths in room 10, lesson 2 Polish.
+        {
+            "Id": 1,
+            "Lesson": {"Id": 501},
+            "DayOfTheWeek": 1,
+            "LessonNo": 1,
+            "DateFrom": "2026-09-01",
+            "DateTo": "2027-06-25",
+            "Classroom": {"Id": 10, "Name": "10"},
+        },
+        {
+            "Id": 2,
+            "Lesson": {"Id": 502},
+            "DayOfTheWeek": 1,
+            "LessonNo": 2,
+            "DateFrom": "2026-09-01",
+            "DateTo": "2027-06-25",
+            "Classroom": {"Id": 11, "Symbol": "11"},
+        },
+        # An old version of lesson 3, no longer valid in October.
+        {
+            "Id": 3,
+            "Lesson": {"Id": 503},
+            "DayOfTheWeek": 1,
+            "LessonNo": 3,
+            "DateFrom": "2026-09-01",
+            "DateTo": "2026-09-06",
+            "Classroom": None,
+        },
+        # Tuesday: lesson 1 Polish.
+        {
+            "Id": 4,
+            "Lesson": {"Id": 502},
+            "DayOfTheWeek": "2",
+            "LessonNo": "1",
+            "DateFrom": "2026-09-01",
+            "DateTo": "2027-06-25",
+            "Classroom": {"Id": 11, "Name": "11"},
+        },
+    ]
+}
+_LESSON_SUBJECTS = {501: 100, 502: 200, 503: 300}
+
+
+def _lesson(no: int, subject: int, room: int | None, *, canceled: bool = False) -> LessonData:
+    return LessonData(
+        lesson_no=no,
+        hour_from=None,
+        hour_to=None,
+        subject_id=subject,
+        teacher_id=None,
+        classroom_id=room,
+        is_canceled=canceled,
+        is_substitution=False,
+    )
+
+
+def test_parse_timetable_entries() -> None:
+    entries = parsers.parse_timetable_entries(_ENTRIES, _LESSON_SUBJECTS)
+    assert [(e.day_of_week, e.lesson_no, e.subject_id) for e in entries] == [
+        (1, 1, 100),
+        (1, 2, 200),
+        (1, 3, 300),
+        (2, 1, 200),
+    ]
+    assert entries[1].classroom == "11"
+    assert entries[2].classroom is None
+    assert not entries[2].valid_on(date(2026, 10, 5))
+    assert entries[0].valid_on(date(2026, 10, 5))
+
+
+def test_plan_differences() -> None:
+    standing = parsers.parse_timetable_entries(_ENTRIES, _LESSON_SUBJECTS)
+    monday, tuesday = date(2026, 10, 5), date(2026, 10, 6)
+    timetable = {
+        # Lesson 1 in another room, lesson 2 cancelled, an extra lesson 4.
+        monday: [_lesson(1, 100, 12), _lesson(2, 200, 11, canceled=True), _lesson(4, 100, 10)],
+        # Tuesday has a plan but no lessons: a day off.
+        tuesday: [],
+        date(2026, 10, 10): [],
+    }
+    free = [FreeDayData(id=1, name="Dzień Edukacji", date_from="2026-10-06", date_to="2026-10-06")]
+    diffs = parsers.plan_differences(timetable, standing, free)
+    assert [(d.date, d.lesson_no, d.kind) for d in diffs] == [
+        (monday, 1, "room"),
+        (monday, 2, "cancelled"),
+        (monday, 4, "extra"),
+        (tuesday, None, "no_lessons"),
+    ]
+    assert diffs[0].planned_classroom == "10"
+    assert diffs[3].free_day == "Dzień Edukacji"
+    # Matching weeks and an empty plan give nothing.
+    same = {monday: [_lesson(1, 100, 10), _lesson(2, 200, 11)]}
+    assert parsers.plan_differences(same, standing) == []
+    assert parsers.plan_differences(timetable, []) == []
+
+
+def test_plan_differences_subject_and_missing() -> None:
+    standing = parsers.parse_timetable_entries(_ENTRIES, _LESSON_SUBJECTS)
+    monday = date(2026, 10, 5)
+    diffs = parsers.plan_differences({monday: [_lesson(1, 300, 10)]}, standing)
+    assert [(d.lesson_no, d.kind, d.planned_subject_id, d.subject_id) for d in diffs] == [
+        (1, "subject", 100, 300),
+        (2, "missing", 200, None),
+    ]

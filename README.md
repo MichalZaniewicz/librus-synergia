@@ -90,6 +90,7 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `free_days()`, `parent_teacher_conferences()` | days off; conferences |
 | `text_grades()` | free-text grades, which `grades()` doesn't contain |
 | `lesson_topics()` | every lesson held, with its topic and subject (Realizations) |
+| `standing_timetable()` | the standing weekly plan (TimetableEntries); `parsers.plan_differences()` shows how a real week differs from it |
 | `school_trips()`, `school_files()` | school trips; documents the school shares with parents |
 | `homework_categories()` | homework assignment categories |
 | `download_attachment(attachment_id, message_id)` | a message attachment (name, type, bytes), without opening the message |

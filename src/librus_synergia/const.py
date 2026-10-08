@@ -186,6 +186,9 @@ ENDPOINT_REALIZATIONS = "Realizations"
 # School trips and documents the school shares (lowercase `Data` envelope).
 ENDPOINT_SCHOOL_TRIPS = "SchoolTrips"
 ENDPOINT_SCHOOL_FILES = "SchoolFiles"
+# The standing weekly plan (weekday + lesson number, valid between two
+# dates), CONFIRMED live 2026-10-08.
+ENDPOINT_TIMETABLE_ENTRIES = "TimetableEntries"
 # Each teacher's homework categories (`CategoryName`).
 ENDPOINT_HOMEWORK_ASSIGNMENT_CATEGORIES = "HomeWorkAssignments/Categories"
 # Categories of point grades - carry the maximum (ValueTo), weight and

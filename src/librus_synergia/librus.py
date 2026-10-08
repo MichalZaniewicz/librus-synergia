@@ -51,6 +51,7 @@ from .models import (
     SchoolFileData,
     SchoolNoticeData,
     SchoolTripData,
+    StandingLessonData,
     TextGradeData,
 )
 
@@ -488,6 +489,16 @@ class Librus:
         )
         return parsers.parse_realizations(topics, parsers.parse_lesson_subjects(lessons))
 
+    async def standing_timetable(self) -> list[StandingLessonData]:
+        """The standing weekly plan (`TimetableEntries`), with the subject
+        resolved through `Lessons`. `parsers.plan_differences()` compares
+        it with real weeks from `timetable()`."""
+        entries, lessons = await asyncio.gather(
+            self._call(self.client.async_get_timetable_entries),
+            self._call(self.client.async_get_lessons),
+        )
+        return parsers.parse_timetable_entries(entries, parsers.parse_lesson_subjects(lessons))
+
     async def school_trips(self) -> list[SchoolTripData]:
         return parsers.parse_school_trips(await self._call(self.client.async_get_school_trips))
 
@@ -631,6 +642,7 @@ class Librus:
             homework_categories,
             conferences,
             lessons_payload,
+            entries_payload,
         ) = await asyncio.gather(
             optional(self.lucky_number(), None),
             optional(self.subjects(), {}),
@@ -653,7 +665,9 @@ class Librus:
             optional(self.homework_categories(), {}),
             optional(self.parent_teacher_conferences(), []),
             optional(self._call(self.client.async_get_lessons), {}),
+            optional(self._call(self.client.async_get_timetable_entries), {}),
         )
+        lesson_subjects = parsers.parse_lesson_subjects(lessons_payload)
         data = LibrusData(
             me=me,
             grades=grades,
@@ -679,14 +693,13 @@ class Librus:
             point_grades=point,
             justifications=justifications,
             text_grades=text_grades,
-            lesson_topics=parsers.parse_realizations(
-                topics_payload, parsers.parse_lesson_subjects(lessons_payload)
-            ),
+            lesson_topics=parsers.parse_realizations(topics_payload, lesson_subjects),
             school_trips=trips,
             school_files=files,
             homework_assignment_categories=homework_categories,
             parent_teacher_conferences=conferences,
-            lesson_subjects=parsers.parse_lesson_subjects(lessons_payload),
+            lesson_subjects=lesson_subjects,
+            standing_timetable=parsers.parse_timetable_entries(entries_payload, lesson_subjects),
         )
         if include_messages:
             unread = await optional(self.unread_messages(), {})
