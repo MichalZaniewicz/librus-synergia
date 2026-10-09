@@ -109,6 +109,18 @@ a real `4+` showed as 4.5, and a subject with a real `6` and `4-` showed
 an average of 4.88 ((6 + 3.75) / 2) in Librus's own app. See
 `parse_grade_value`.
 
+✅ These are the **school's settings**, readable from `GradingSystem`
+(checked 2026-10-09): `{"countZero": false, "plusValue": 0.5, "minusValue":
+0.25}` on the tested school - the same as the values above. Another school
+can set them differently, and `countZero` says whether a 0 counts towards
+the average. ❓ `parse_grade_value` still uses the fixed 0.5 / 0.25.
+
+✅ Also: `Me/PeriodicGradeAverages` answers `{"annual", "firstSemester",
+"secondSemester"}` (all `null` at a school with averages switched off) and
+`Me/BehaviourDescriptiveGrades` `{"data": []}`; `BehaviourDescriptiveGrades`
+is 404, `Reports` and `Indywidualni` 401 (`Insufficient scopes`),
+`PersonalDataAccesses` 405.
+
 ✅ Values seen on a real account so far: `2`, `4`, `5`, `6`, `4+`, `5+`,
 `4-`, `6-`, and a bare `+` filed under an "aktywność" (class activity)
 category. That bare `+` is a mark, not a grade: a subject whose only entry
