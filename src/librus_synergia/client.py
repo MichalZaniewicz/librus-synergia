@@ -417,8 +417,11 @@ class LibrusApiClient:
             data = await response.json(content_type=None)
         except (aiohttp.ContentTypeError, ValueError) as err:
             text = await response.text()
+            # An error page (e.g. a 404 for a mailbox this account doesn't
+            # have) keeps its status so callers can tell it apart.
             raise LibrusUnexpectedResponseError(
-                f"Non-JSON response (HTTP {response.status}): {text[:200]!r}"
+                f"Non-JSON response (HTTP {response.status}): {text[:200]!r}",
+                status_code=response.status if response.status >= 400 else None,
             ) from err
         if isinstance(data, list):
             # CONFIRMED live (2026-09-06): at least one Wiadomości mailbox's

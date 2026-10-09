@@ -423,3 +423,17 @@ async def test_download_homework_attachment_failed() -> None:
 
 async def _no_sleep(_seconds: float) -> None:
     return None
+
+
+async def test_non_json_error_page_keeps_status() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{MESSAGES_BASE_URL}/alerts/messages", status=404, text_data="<html>404</html>"
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusUnexpectedResponseError) as err:
+                await client.async_get_messages(mailbox="alerts")
+
+            assert err.value.status_code == 404

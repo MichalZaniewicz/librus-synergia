@@ -656,6 +656,10 @@ class LibrusData:
     substitution_messages: list[MessageData] = field(default_factory=list)
     alert_messages: list[MessageData] = field(default_factory=list)
     justification_messages: list[MessageData] = field(default_factory=list)
+    # Sent messages (`outbox`, with `receiver_name`) and the archive of past
+    # school years (`archive/inbox`). `fetch_all()` leaves these empty.
+    sent_messages: list[MessageData] = field(default_factory=list)
+    archived_messages: list[MessageData] = field(default_factory=list)
     # lesson_id -> subject_id, from the `Lessons` reference endpoint -
     # resolves which subject an AttendanceData record's `lesson_id`
     # belongs to (Attendances itself carries no Subject field). See

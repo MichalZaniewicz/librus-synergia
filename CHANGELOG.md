@@ -11,6 +11,13 @@
   and the `singleUseKey` flow). Not tried live.
 - **Sent messages:** `MessageData.receiver_name`, filled for
   `messages("outbox")`. `messages("archive/inbox")` lists past school years.
+- `LibrusData.sent_messages` / `archived_messages` (left empty by
+  `fetch_all()`).
+
+### Fixed
+- A non-JSON error page (e.g. an HTML 404) now carries its HTTP status in
+  `LibrusUnexpectedResponseError.status_code`, so a missing mailbox is
+  recognised as such.
 
 ## 0.3.8
 
