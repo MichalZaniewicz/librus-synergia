@@ -697,7 +697,9 @@ def parse_descriptive_grades(
 ) -> list[DescriptiveGradeData]:
     """`DescriptiveGrades` -> grades. CONFIRMED live 2026-10-09 (a parent
     account, music in grade 1): the grade shown in Synergia is `Map` ("6",
-    `RealGradeValue` holds the same), NOT `Grade` (3 for that "6");
+    `RealGradeValue` holds the same), NOT `Grade` (3 for that "6" - the
+    grade's range on the scale, see `DescriptiveGrades/Types`; an item
+    without `Map`/`RealGradeValue` gets an empty value instead);
     `Skill.Id` is resolved through `skills` (`parse_descriptive_skills`),
     `AddedBy.Id` is the teacher, `Comments` is a list of `{"Id"}` into
     `DescriptiveGrades/Comments`, resolved to text through `comments`
@@ -712,7 +714,9 @@ def parse_descriptive_grades(
         if not isinstance(item, dict) or item.get("Id") is None:
             continue
         skill_id = _ref(item, "Skill")
-        value = item.get("Map") or item.get("RealGradeValue") or item.get("Grade")
+        # Never `Grade`: that is the grade's range on the scale (1-3, see
+        # DescriptiveGrades/Types), e.g. 3 for a "6".
+        value = item.get("Map") or item.get("RealGradeValue")
         comment_ids = [
             comment_id
             for comment in item.get("Comments") or []

@@ -395,7 +395,7 @@ class DescriptiveGradeData:
     """A grade in a descriptive/skills-based subject (`DescriptiveGrades`),
     e.g. music in grades 1-3. CONFIRMED live 2026-10-09: the shown grade is
     `Map` ("6", same as `RealGradeValue`) - the item's `Grade` field holds
-    something else (3 for a "6"). `skill` is the skill the grade is for
+    its range on the scale (3 for a "6", see DescriptiveGrades/Types). `skill` is the skill the grade is for
     (Synergia's "Kategoria" column, from `DescriptiveGrades/Skills`).
     `comments` is the teacher's comment text (`DescriptiveGrades/Comments`,
     `comment_ids` the raw ids). These grades don't count towards the

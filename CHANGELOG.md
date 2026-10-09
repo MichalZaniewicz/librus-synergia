@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- A descriptive grade without `Map` / `RealGradeValue` no longer takes its
+  value from `Grade`: that field is the grade's range on the scale (1-3, seen
+  in `DescriptiveGrades/Types`), so a "6" would have shown as "3". The value
+  is empty in that case.
+
 ## 0.3.13
 
 ### Fixed

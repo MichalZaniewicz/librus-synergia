@@ -827,6 +827,7 @@ def test_parse_descriptive_grades_reads_map_skill_and_teacher() -> None:
                     "Comments": [{"Id": 44}],
                 },
                 {"Id": 2, "Skill": {"Id": 999}, "Grade": 4, "RealGradeValue": "5"},
+                {"Id": 3, "Grade": 3},
             ]
         },
         skills,
@@ -843,10 +844,12 @@ def test_parse_descriptive_grades_reads_map_skill_and_teacher() -> None:
             }
         ),
     )
-    first, second = grades
+    first, second, third = grades
     assert first.value == "6"
     assert (first.subject_id, first.skill_id, first.skill) == (9, 501, "Ekspresja muzyczna. Śpiew")
     assert (first.teacher_id, first.date, first.semester) == (7, "2026-09-30", 1)
     assert (first.comment_ids, first.comments) == ([44], ["Mazurek - cztery zwrotki"])
     # No Map -> RealGradeValue; an unknown skill keeps its id only.
     assert (second.value, second.skill, second.comment_ids) == ("5", None, [])
+    # `Grade` alone is the range on the scale, not the grade: no value.
+    assert third.value == ""
