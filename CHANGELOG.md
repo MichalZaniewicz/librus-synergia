@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.18
 
 ### Fixed
 - **Timeouts no longer escape as a bare `TimeoutError`.** Every request -
