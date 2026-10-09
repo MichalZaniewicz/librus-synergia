@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.16
 
 ### Fixed
 - **"Insufficient scopes" is no longer an expired session.** A 401 whose body

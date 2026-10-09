@@ -24,7 +24,7 @@ from .exceptions import (
 from .librus import Librus
 from .parsers import parse_grade_value
 
-__version__ = "0.3.15"
+__version__ = "0.3.16"
 
 __all__ = [
     "Librus",
