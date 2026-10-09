@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Homework attachment download** now works (confirmed live with a real
+  file): after Synergia's redirect it opens the sandbox's
+  `CSTryToDownload` page, POSTs `CSCheckKey` until the file is ready and
+  GETs `CSDownload`. 0.3.9 polled with GET and never got the file.
+- `HomeworkAssigmentFiles` items are confirmed to be `{Id, Name, Url}`.
+
 ## 0.3.9
 
 ### Added

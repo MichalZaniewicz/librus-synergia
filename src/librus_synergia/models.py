@@ -328,8 +328,8 @@ class HomeworkAssignmentData:
     # `Category.Id` (only sometimes set) -> `HomeWorkAssignments/Categories`.
     category_id: int | None = None
     lesson_id: int | None = None
-    # `HomeworkAssigmentFiles` (sic). The item shape is not known yet (the
-    # list was empty on every real assignment seen) - parsed defensively.
+    # `HomeworkAssigmentFiles` (sic): `{"Id", "Name", "Url"}` per file
+    # (CONFIRMED live 2026-10-09).
     attachments: list[AttachmentData] = field(default_factory=list)
 
 

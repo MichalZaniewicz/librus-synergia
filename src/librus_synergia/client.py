@@ -778,15 +778,15 @@ class LibrusApiClient:
         )
 
     async def async_download_homework_attachment(
-        self, attachment_id: str, *, max_wait_attempts: int = 5
+        self, attachment_id: str, *, max_wait_attempts: int = 10
     ) -> AttachmentFileData:
         """Download one homework-assignment attachment (ids from
         `HomeworkAssignmentData.attachments`). Per szkolny-android's
         `LibrusSynergiaHomeworkGetAttachment.kt`: Synergia's
-        `homework/downloadFile/<id>` redirects to a sandbox.librus.pl link,
-        either a `GetFile` link (same as message attachments) or an older
-        `singleUseKey` one. Not yet tried live - no attachment on the tested
-        accounts."""
+        `homework/downloadFile/<id>` redirects to a sandbox.librus.pl link.
+        CONFIRMED live 2026-10-09: a `CSTryToDownload&singleUseKey=...` link
+        (see `_async_fetch_single_use_key_file`); a `GetFile` link, as for
+        message attachments, is handled too."""
         url = f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/{attachment_id}"
         try:
             async with self._session.get(
@@ -822,7 +822,7 @@ class LibrusApiClient:
                 link, fallback_name, max_wait_attempts=max_wait_attempts
             )
         return await self._async_fetch_single_use_key_file(
-            key.group(1), fallback_name, max_wait_attempts=max_wait_attempts
+            link, key.group(1), fallback_name, max_wait_attempts=max_wait_attempts
         )
 
     async def _async_fetch_sandbox_file(
@@ -847,17 +847,23 @@ class LibrusApiClient:
         raise LibrusUnexpectedResponseError(f"{fallback_name} wasn't ready to download")
 
     async def _async_fetch_single_use_key_file(
-        self, key: str, fallback_name: str, *, max_wait_attempts: int
+        self, link: str, key: str, fallback_name: str, *, max_wait_attempts: int
     ) -> AttachmentFileData:
-        """Older sandbox flow (szkolny-android's
-        `LibrusSandboxDownloadAttachment.kt`): poll `CSCheckKey` until the
-        status is `ready`, then POST `CSDownload`."""
-        headers = {"User-Agent": USER_AGENT}
+        """The `CSTryToDownload` sandbox flow. CONFIRMED live 2026-10-09 (a
+        homework attachment), following sandbox.librus.pl's own
+        `try_to_download_by_key.js`: open the `CSTryToDownload` page, then
+        POST `CSCheckKey` with the key in the form body every few seconds
+        until `status` is `ready` (`not_downloaded_yet` meanwhile,
+        `download_failed` on failure), then GET `CSDownload`."""
+        headers = {"User-Agent": USER_AGENT, "Referer": link}
         try:
+            async with self._session.get(link, headers=headers) as response:
+                await response.read()
             for attempt in range(max_wait_attempts):
-                async with self._session.get(
+                async with self._session.post(
                     SANDBOX_URL,
-                    params={"action": "CSCheckKey", "singleUseKey": key},
+                    params={"action": "CSCheckKey"},
+                    data={"singleUseKey": key},
                     headers=headers,
                 ) as response:
                     try:
@@ -865,7 +871,7 @@ class LibrusApiClient:
                     except ValueError:
                         status = None
                 if status == "ready":
-                    async with self._session.post(
+                    async with self._session.get(
                         SANDBOX_URL,
                         params={"action": "CSDownload", "singleUseKey": key},
                         headers=headers,
@@ -878,11 +884,14 @@ class LibrusApiClient:
                 if status != "not_downloaded_yet":
                     break
                 if attempt + 1 < max_wait_attempts:
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(_SANDBOX_POLL_SECONDS)
         except aiohttp.ClientError as err:
             raise LibrusConnectionError(str(err)) from err
         raise LibrusUnexpectedResponseError(f"{fallback_name} wasn't ready to download")
 
+
+# Librus's own page polls every 5 s at first, then every 10 s.
+_SANDBOX_POLL_SECONDS = 3
 
 _SINGLE_USE_KEY_RE = re.compile(r"singleUseKey=([0-9A-Za-z_\-]+)")
 

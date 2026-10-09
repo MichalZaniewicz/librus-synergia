@@ -87,6 +87,8 @@ class MockedSession:
         self._posts: dict[str, FakeResponse] = {}
         self._queued: dict[str, list[FakeResponse]] = {}
         self.get_calls: dict[str, int] = {}
+        self._queued_posts: dict[str, list[FakeResponse]] = {}
+        self.post_calls: dict[str, int] = {}
         self._patches = [
             patch.object(session, "get", side_effect=self._handle_get),
             patch.object(session, "post", side_effect=self._handle_post),
@@ -104,6 +106,13 @@ class MockedSession:
 
     def post(self, url: str, **kwargs: Any) -> None:
         self._posts[url] = FakeResponse(**kwargs)
+        self._queued_posts.pop(url, None)
+
+    def post_sequence(self, url: str, *responses: dict[str, Any]) -> None:
+        """Answer successive POSTs of `url` with each response in turn (the
+        last one repeats)."""
+        self._queued_posts[url] = [FakeResponse(**r) for r in responses]
+        self.post_calls.setdefault(url, 0)
 
     def _handle_get(self, url: Any, **_kwargs: Any) -> FakeResponse:
         self.get_calls[str(url)] = self.get_calls.get(str(url), 0) + 1
@@ -116,6 +125,10 @@ class MockedSession:
         return response
 
     def _handle_post(self, url: Any, **_kwargs: Any) -> FakeResponse:
+        self.post_calls[str(url)] = self.post_calls.get(str(url), 0) + 1
+        queue = self._queued_posts.get(str(url))
+        if queue:
+            return queue.pop(0) if len(queue) > 1 else queue[0]
         response = self._posts.get(str(url))
         if response is None:
             raise AssertionError(f"Unexpected POST {url}")

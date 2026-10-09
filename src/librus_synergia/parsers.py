@@ -623,10 +623,10 @@ def parse_homework_assignments(payload: dict[str, Any]) -> list[HomeworkAssignme
 
 
 def parse_homework_attachments(files: Any) -> list[AttachmentData]:
-    """`HomeWorkAssignments[].HomeworkAssigmentFiles` (sic). The item shape
-    hasn't been seen yet (empty on every real assignment so far), so this
-    accepts a bare id or an object with `Id` and a `Name`/`FileName`/
-    `Filename`/`File` name."""
+    """`HomeWorkAssignments[].HomeworkAssigmentFiles` (sic). CONFIRMED live
+    (2026-10-09): `{"Id": "6519794", "Name": "<file name>", "Url": ".../
+    HomeWorkAssignments/Attachment/<homework id>-<file id>"}`. Other name keys
+    and bare ids are still accepted, in case another school differs."""
     if not isinstance(files, list):
         return []
     attachments: list[AttachmentData] = []
