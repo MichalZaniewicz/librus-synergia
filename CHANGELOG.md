@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.15
 
 ### Added
 - **Download a school document.** `LibrusApiClient.async_download_school_file()`
