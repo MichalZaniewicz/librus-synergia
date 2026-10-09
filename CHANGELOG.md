@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Homework attachments:** `HomeworkAssignmentData.attachments` (from
+  `HomeworkAssigmentFiles`, parsed defensively - no real example seen yet)
+  and `Librus.download_homework_attachment(attachment_id)` /
+  `client.async_download_homework_attachment` (Synergia's
+  `homework/downloadFile` redirect to sandbox.librus.pl, both the `GetFile`
+  and the `singleUseKey` flow). Not tried live.
+- **Sent messages:** `MessageData.receiver_name`, filled for
+  `messages("outbox")`. `messages("archive/inbox")` lists past school years.
+
 ## 0.3.8
 
 No code changes.

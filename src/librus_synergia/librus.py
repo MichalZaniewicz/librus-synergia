@@ -520,6 +520,14 @@ class Librus:
             lambda: self.client.async_download_message_attachment(attachment_id, message_id)
         )
 
+    async def download_homework_attachment(self, attachment_id: str) -> AttachmentFileData:
+        """Download a homework-assignment attachment (ids from
+        `homework_assignments()[].attachments`). Uses the main Synergia
+        session, not Wiadomości."""
+        return await self._call(
+            lambda: self.client.async_download_homework_attachment(attachment_id)
+        )
+
     async def justifications(self) -> list[JustificationData]:
         """Absence justifications the parent submitted, newest first, with
         their status. `parsers.justified_dates()` turns them into the days
@@ -560,7 +568,9 @@ class Librus:
     async def messages(self, mailbox: str = "inbox", *, limit: int = 10) -> list[MessageData]:
         """Recent messages. `content` is Librus's own truncated preview.
         Listing does NOT mark anything read. A mailbox this account doesn't
-        have (Librus answers 404) comes back empty."""
+        have (Librus answers 404) comes back empty. Besides the inbox and the
+        secondary boxes, `"outbox"` (sent, with `receiver_name`) and
+        `"archive/inbox"` (past school years) work the same way."""
         try:
             payload = await self._call_messages(
                 lambda: self.client.async_get_messages(mailbox, limit=limit)

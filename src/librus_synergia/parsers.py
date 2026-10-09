@@ -616,9 +616,39 @@ def parse_homework_assignments(payload: dict[str, Any]) -> list[HomeworkAssignme
                 due_date=item.get("DueDate"),
                 category_id=as_int((item.get("Category") or {}).get("Id")),
                 lesson_id=as_int((item.get("Lesson") or {}).get("Id")),
+                attachments=parse_homework_attachments(item.get("HomeworkAssigmentFiles")),
             )
         )
     return assignments
+
+
+def parse_homework_attachments(files: Any) -> list[AttachmentData]:
+    """`HomeWorkAssignments[].HomeworkAssigmentFiles` (sic). The item shape
+    hasn't been seen yet (empty on every real assignment so far), so this
+    accepts a bare id or an object with `Id` and a `Name`/`FileName`/
+    `Filename`/`File` name."""
+    if not isinstance(files, list):
+        return []
+    attachments: list[AttachmentData] = []
+    for item in files:
+        if isinstance(item, dict):
+            file_id = item.get("Id", item.get("id"))
+            name = next(
+                (
+                    item[key]
+                    for key in ("Name", "FileName", "Filename", "File", "name", "fileName")
+                    if isinstance(item.get(key), str) and item[key]
+                ),
+                None,
+            )
+        elif isinstance(item, (int, str)):
+            file_id, name = item, None
+        else:
+            continue
+        if file_id is None or file_id == "":
+            continue
+        attachments.append(AttachmentData(id=str(file_id), filename=name))
+    return attachments
 
 
 def parse_behaviour_grades(
@@ -1350,9 +1380,19 @@ def parse_message_list(list_payload: dict[str, Any], mailbox: str) -> list[Messa
                 read_date=item.get("readDate"),
                 has_attachment=bool(item.get("isAnyFileAttached")),
                 mailbox=mailbox,
+                receiver_name=resolve_receiver_name(item),
             )
         )
     return messages
+
+
+def resolve_receiver_name(payload: dict[str, Any]) -> str | None:
+    """Who a sent message (`outbox`) went to: `receiverName`, else
+    `receiverFirstName`/`receiverLastName`. None for received messages."""
+    name = payload.get("receiverName") or (
+        f"{payload.get('receiverFirstName') or ''} {payload.get('receiverLastName') or ''}".strip()
+    )
+    return name or None
 
 
 def parse_messages(

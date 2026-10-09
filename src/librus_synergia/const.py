@@ -36,6 +36,14 @@ SYNERGIA_STUDENT_INFO_URL = "https://synergia.librus.pl/informacja"
 # Renews the `oauth_token` session cookie without a password login
 # (CONFIRMED live 2026-10-07: 200, empty body, new cookie, API keeps working).
 SYNERGIA_REFRESH_TOKEN_URL = "https://synergia.librus.pl/refreshToken"
+# Homework attachment download (per szkolny-android's
+# `LibrusSynergiaHomeworkGetAttachment.kt`): `<url>/<attachment id>` redirects
+# to a sandbox.librus.pl download link. Not yet tried live (no attachment
+# on the tested accounts).
+SYNERGIA_HOMEWORK_ATTACHMENT_URL = "https://synergia.librus.pl/homework/downloadFile"
+# Old-style sandbox download: a `singleUseKey` is polled with `CSCheckKey`
+# until ready, then fetched with `CSDownload`.
+SANDBOX_URL = "https://sandbox.librus.pl/index.php"
 API_OAUTH_AUTHORIZATION_URL = f"https://api.librus.pl/OAuth/Authorization?client_id={CLIENT_ID}"
 API_OAUTH_AUTHORIZATION_WITH_SCOPE_URL = (
     f"{API_OAUTH_AUTHORIZATION_URL}&response_type=code&scope=mydata"

@@ -99,7 +99,7 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `justifications()` | absence justifications the parent submitted, with their status (`is_accepted` / `is_pending` / `is_rejected`); `parsers.justified_dates()` gives the days already covered |
 | `timetable(week_of=None)` | `{date: [LessonData]}` for one week, including parallel groups, cancellations and substitutions; a substitution's `original` says what lesson, teacher and room it replaces, `room_changed` flags a new room |
 | `agenda()`, `agenda_categories()` | terminarz: tests, quizzes, trips, parent meetings |
-| `homework()` | homework assignments (zadania domowe) |
+| `homework()` | homework assignments (zadania domowe), with their attachment list |
 | `free_days()`, `parent_teacher_conferences()` | days off; conferences |
 | `text_grades()` | free-text grades, which `grades()` doesn't contain |
 | `lesson_topics()` | every lesson held, with its topic and subject (Realizations) |
@@ -107,14 +107,15 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `school_trips()`, `school_files()` | school trips; documents the school shares with parents |
 | `homework_categories()` | homework assignment categories |
 | `download_attachment(attachment_id, message_id)` | a message attachment (name, type, bytes), without opening the message |
+| `download_homework_attachment(attachment_id)` | a homework attachment (name, type, bytes) |
 | `announcements()` | school notice board (tablica ogłoszeń) |
 | `lucky_number()` | szczęśliwy numerek, with the day it applies to |
-| `unread_messages()`, `messages(mailbox="inbox", *, limit=10)` | unread count per mailbox; message previews (listing never marks read) |
+| `unread_messages()`, `messages(mailbox="inbox", *, limit=10)` | unread count per mailbox; message previews (listing never marks read); `mailbox="outbox"` gives sent messages with `receiver_name`, `"archive/inbox"` past school years |
 | `message(id, mailbox)` | the full message body, which **marks it read** like opening it in the app |
 | `subjects()`, `teachers()`, `classrooms()` | id → name lookups |
 | `school()`, `school_class()` | school details; class, homeroom teacher and semester dates |
 | `kindergartener_id()` | the child's `LID-AUTH-USER-...` on a kindergarten account, else `None` (`timetable()` uses it on its own) |
-| `fetch_all()` | most of the above as one `LibrusData` snapshot - not `student_number()`, `message()` or `download_attachment()`, and messages are the 10 latest from the inbox only |
+| `fetch_all()` | most of the above as one `LibrusData` snapshot - not `student_number()`, `message()`, `download_attachment()` or `download_homework_attachment()`, and messages are the 10 latest from the inbox only |
 
 Every method logs in lazily and retries once after a fresh login if the session has expired. A session older than 2 hours is renewed through Librus's own `refreshToken`, so a long-running program doesn't log in with the password every day.
 

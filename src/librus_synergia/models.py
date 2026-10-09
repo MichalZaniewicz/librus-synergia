@@ -248,8 +248,10 @@ class MessageData:
     for a genuinely unread message across repeated list fetches).
 
     `mailbox` records which mailbox this came from ("inbox",
-    "substitutions", "alerts", ...) - needed so a card can pass the right
-    value back to the `get_message` service.
+    "substitutions", "alerts", "outbox", "archive/inbox", ...) - needed so a
+    card can pass the right value back to the `get_message` service.
+    `receiver_name` is set for sent messages (`outbox`), whose items carry
+    `receiverName` instead of a sender.
     """
 
     id: str
@@ -260,6 +262,7 @@ class MessageData:
     read_date: str | None
     has_attachment: bool
     mailbox: str = "inbox"
+    receiver_name: str | None = None
 
 
 @dataclass(slots=True)
@@ -325,6 +328,9 @@ class HomeworkAssignmentData:
     # `Category.Id` (only sometimes set) -> `HomeWorkAssignments/Categories`.
     category_id: int | None = None
     lesson_id: int | None = None
+    # `HomeworkAssigmentFiles` (sic). The item shape is not known yet (the
+    # list was empty on every real assignment seen) - parsed defensively.
+    attachments: list[AttachmentData] = field(default_factory=list)
 
 
 # `BehaviourGrades/Points[].BehaviourGrade.Id` -> (short, full name), a fixed
@@ -661,8 +667,8 @@ class LibrusData:
 
 @dataclass(slots=True)
 class AttachmentData:
-    """An attachment listed on a single message. Only the name is exposed -
-    Librus's JSON API has no download endpoint for it."""
+    """An attachment listed on a message or a homework assignment. The file
+    itself comes from `download_attachment` / `download_homework_attachment`."""
 
     id: str
     filename: str | None

@@ -9,6 +9,7 @@ OAuth password grant szkolny-android documented. Confirmed live on
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -74,9 +75,11 @@ from .const import (
     MESSAGES_BOOTSTRAP_URL,
     OAUTH_TOKEN_COOKIE,
     PERSISTED_COOKIE_NAMES,
+    SANDBOX_URL,
     SESSION_EXPIRY_SAFETY_MARGIN_SECONDS,
     SESSION_REFRESH_AFTER_SECONDS,
     SYNERGIA_DOMAIN,
+    SYNERGIA_HOMEWORK_ATTACHMENT_URL,
     SYNERGIA_PORTAL_LOGIN_URL,
     SYNERGIA_REFRESH_TOKEN_URL,
     SYNERGIA_STUDENT_INFO_URL,
@@ -767,6 +770,63 @@ class LibrusApiClient:
         )
         if not link:
             raise LibrusUnexpectedResponseError(f"No download link for attachment {attachment_id}")
+        return await self._async_fetch_sandbox_file(
+            link, f"attachment-{attachment_id}", max_wait_attempts=max_wait_attempts
+        )
+
+    async def async_download_homework_attachment(
+        self, attachment_id: str, *, max_wait_attempts: int = 5
+    ) -> AttachmentFileData:
+        """Download one homework-assignment attachment (ids from
+        `HomeworkAssignmentData.attachments`). Per szkolny-android's
+        `LibrusSynergiaHomeworkGetAttachment.kt`: Synergia's
+        `homework/downloadFile/<id>` redirects to a sandbox.librus.pl link,
+        either a `GetFile` link (same as message attachments) or an older
+        `singleUseKey` one. Not yet tried live - no attachment on the tested
+        accounts."""
+        url = f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/{attachment_id}"
+        try:
+            async with self._session.get(
+                url, headers={"User-Agent": USER_AGENT}, allow_redirects=False
+            ) as response:
+                status = response.status
+                location = response.headers.get("Location")
+                await response.read()
+        except aiohttp.ClientError as err:
+            raise LibrusConnectionError(str(err)) from err
+        if status in (401, 403):
+            raise LibrusSessionExpiredError(
+                f"Session rejected on {url} (HTTP {status}).", status_code=status
+            )
+        if status == 503:
+            raise LibrusServerMaintenanceError(f"Librus is under maintenance (HTTP 503) on {url}.")
+        if not location:
+            raise LibrusUnexpectedResponseError(
+                f"No download link for homework file {attachment_id}"
+            )
+        link = urljoin(url, location)
+        if "CSDownloadFailed" in link:
+            raise LibrusUnexpectedResponseError(f"Homework file {attachment_id} not found")
+        if "sandbox.librus.pl" not in link:
+            # Synergia sends a dead session to its login page.
+            raise LibrusSessionExpiredError(
+                f"Session rejected on {url} (redirected to {link}).", status_code=status
+            )
+        fallback_name = f"homework-file-{attachment_id}"
+        key = _SINGLE_USE_KEY_RE.search(link)
+        if key is None:
+            return await self._async_fetch_sandbox_file(
+                link, fallback_name, max_wait_attempts=max_wait_attempts
+            )
+        return await self._async_fetch_single_use_key_file(
+            key.group(1), fallback_name, max_wait_attempts=max_wait_attempts
+        )
+
+    async def _async_fetch_sandbox_file(
+        self, link: str, fallback_name: str, *, max_wait_attempts: int
+    ) -> AttachmentFileData:
+        """A `sandbox.librus.pl/GetFile/...` link is an HTML waiting page;
+        `<link>/get` returns the file once it's ready."""
         headers = {"User-Agent": USER_AGENT, "Referer": link}
         try:
             async with self._session.get(link, headers=headers) as response:
@@ -776,20 +836,63 @@ class LibrusApiClient:
                     content_type = response.headers.get("Content-Type", "")
                     body = await response.read()
                     if response.status == 200 and "text/html" not in content_type:
-                        return AttachmentFileData(
-                            filename=_attachment_filename(
-                                response.headers.get("Content-Disposition")
-                            )
-                            or f"attachment-{attachment_id}",
-                            content_type=content_type.split(";")[0].strip()
-                            or "application/octet-stream",
-                            content=body,
-                        )
+                        return _file_data(response, body, fallback_name)
                 if attempt + 1 < max_wait_attempts:
                     await asyncio.sleep(2)
         except aiohttp.ClientError as err:
             raise LibrusConnectionError(str(err)) from err
-        raise LibrusUnexpectedResponseError(f"Attachment {attachment_id} wasn't ready to download")
+        raise LibrusUnexpectedResponseError(f"{fallback_name} wasn't ready to download")
+
+    async def _async_fetch_single_use_key_file(
+        self, key: str, fallback_name: str, *, max_wait_attempts: int
+    ) -> AttachmentFileData:
+        """Older sandbox flow (szkolny-android's
+        `LibrusSandboxDownloadAttachment.kt`): poll `CSCheckKey` until the
+        status is `ready`, then POST `CSDownload`."""
+        headers = {"User-Agent": USER_AGENT}
+        try:
+            for attempt in range(max_wait_attempts):
+                async with self._session.get(
+                    SANDBOX_URL,
+                    params={"action": "CSCheckKey", "singleUseKey": key},
+                    headers=headers,
+                ) as response:
+                    try:
+                        status = (await response.json(content_type=None) or {}).get("status")
+                    except ValueError:
+                        status = None
+                if status == "ready":
+                    async with self._session.post(
+                        SANDBOX_URL,
+                        params={"action": "CSDownload", "singleUseKey": key},
+                        headers=headers,
+                    ) as response:
+                        body = await response.read()
+                        content_type = response.headers.get("Content-Type", "")
+                        if response.status == 200 and "text/html" not in content_type:
+                            return _file_data(response, body, fallback_name)
+                    break
+                if status != "not_downloaded_yet":
+                    break
+                if attempt + 1 < max_wait_attempts:
+                    await asyncio.sleep(2)
+        except aiohttp.ClientError as err:
+            raise LibrusConnectionError(str(err)) from err
+        raise LibrusUnexpectedResponseError(f"{fallback_name} wasn't ready to download")
+
+
+_SINGLE_USE_KEY_RE = re.compile(r"singleUseKey=([0-9A-Za-z_\-]+)")
+
+
+def _file_data(
+    response: aiohttp.ClientResponse, body: bytes, fallback_name: str
+) -> AttachmentFileData:
+    content_type = response.headers.get("Content-Type", "")
+    return AttachmentFileData(
+        filename=_attachment_filename(response.headers.get("Content-Disposition")) or fallback_name,
+        content_type=content_type.split(";")[0].strip() or "application/octet-stream",
+        content=body,
+    )
 
 
 def _attachment_filename(disposition: str | None) -> str | None:

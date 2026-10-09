@@ -28,8 +28,8 @@ Base: `https://wiadomosci.librus.pl/api`
 | `GET /<mailbox>/messages?limit=10[&unreadOnly=1]` | ✅ `{"data": [...], "total": N}`. ✅ At least one secondary mailbox returns a **bare JSON array** without the `data` envelope. ✅ Listing **does not** mark anything read. |
 | `GET /<mailbox>/messages/<id>` | ✅ The full message. ⚠️ **Marks the message read**, exactly like opening it in the app. |
 | `GET /me` | ✅ The logged-in account: `firstName`, `lastName`, `groupName` ("rodzic"), `accountId`, `accessToAttachments`. |
-| `GET /outbox/messages` | ✅ Messages you sent (`receiverName`, `topic`, `content`, `sendDate`). No read-marking involved. |
-| `GET /archive/inbox/messages` | ✅ Archived (past years) inbox, same item shape, `total` and `archivingInProgress`. |
+| `GET /outbox/messages` | ✅ Messages you sent (`receiverName`, `topic`, `content`, `sendDate`). No read-marking involved. `messages("outbox")` fills `MessageData.receiver_name` (falls back to `receiverFirstName`/`receiverLastName`, 📖 not seen). |
+| `GET /archive/inbox/messages` | ✅ Archived (past years) inbox, same item shape, `total` and `archivingInProgress`. `messages("archive/inbox")`. ❓ Opening one archived message (`/archive/inbox/messages/<id>`) not tried. |
 | `GET /receivers/student-subjects` | ✅ `[{"teacherIdentifier", "subject"}]` - the student's teachers with their subjects. |
 
 Mailboxes: `inbox`, `notes`, `alerts`, `substitutions`, `absences`,

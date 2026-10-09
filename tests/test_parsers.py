@@ -749,3 +749,49 @@ def test_plan_differences_subject_and_missing() -> None:
         (1, "subject", 100, 300),
         (2, "missing", 200, None),
     ]
+
+
+def test_outbox_message_has_receiver() -> None:
+    payload = {
+        "data": [
+            {
+                "messageId": "5",
+                "receiverName": "Anna Nowak",
+                "topic": "Usprawiedliwienie",
+                "content": base64.b64encode("Dzień dobry".encode()).decode(),
+                "sendDate": "2026-10-01 08:00:00",
+            },
+            {"messageId": "6", "receiverFirstName": "Jan", "receiverLastName": "Kowalski"},
+            {"messageId": "7", "senderName": "Szkoła"},
+        ]
+    }
+    messages = parsers.parse_message_list(payload, "outbox")
+    assert [m.receiver_name for m in messages] == ["Anna Nowak", "Jan Kowalski", None]
+    assert messages[0].content == "Dzień dobry"
+    assert messages[0].mailbox == "outbox"
+
+
+def test_homework_assignment_attachments_defensive() -> None:
+    payload = {
+        "HomeWorkAssignments": [
+            {
+                "Id": 1,
+                "Topic": "Wypracowanie",
+                "HomeworkAssigmentFiles": [
+                    {"Id": 10, "Name": "polecenie.pdf"},
+                    {"Id": "11", "FileName": "karta.docx"},
+                    12,
+                    {"Name": "no id"},
+                    None,
+                ],
+            },
+            {"Id": 2, "Topic": "Bez plików", "HomeworkAssigmentFiles": []},
+        ]
+    }
+    first, second = parsers.parse_homework_assignments(payload)
+    assert [(a.id, a.filename) for a in first.attachments] == [
+        ("10", "polecenie.pdf"),
+        ("11", "karta.docx"),
+        ("12", None),
+    ]
+    assert second.attachments == []

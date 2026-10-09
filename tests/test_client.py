@@ -14,6 +14,8 @@ from librus_synergia.const import (
     API_OAUTH_AUTHORIZATION_URL,
     DATA_BASE_URL,
     MESSAGES_BASE_URL,
+    SANDBOX_URL,
+    SYNERGIA_HOMEWORK_ATTACHMENT_URL,
     SYNERGIA_PORTAL_LOGIN_URL,
     SYNERGIA_REFRESH_TOKEN_URL,
 )
@@ -338,3 +340,86 @@ async def test_download_message_attachment() -> None:
             assert file.filename == "Plan lekcji.pdf"
             assert file.content_type == "application/pdf"
             assert file.content == b"%PDF-1.4 test"
+
+
+async def test_download_homework_attachment_getfile_link() -> None:
+    link = "https://sandbox.librus.pl/GetFile/HWKEY"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/77", status=302, headers={"Location": link}
+            )
+            mocked.get(link, text_data="<html>wait</html>", headers={"Content-Type": "text/html"})
+            mocked.get(
+                f"{link}/get",
+                body=b"PK zip",
+                headers={
+                    "Content-Type": "application/zip",
+                    "Content-Disposition": 'attachment; filename="zadanie.zip"',
+                },
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            file = await client.async_download_homework_attachment("77")
+
+            assert file.filename == "zadanie.zip"
+            assert file.content == b"PK zip"
+
+
+async def test_download_homework_attachment_single_use_key(monkeypatch) -> None:
+    monkeypatch.setattr("librus_synergia.client.asyncio.sleep", _no_sleep)
+    location = f"{SANDBOX_URL}?action=CSDownload&singleUseKey=abc_123"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/78", status=302, headers={"Location": location}
+            )
+            mocked.get_sequence(
+                SANDBOX_URL,
+                {"json_data": {"status": "not_downloaded_yet"}},
+                {"json_data": {"status": "ready"}},
+            )
+            mocked.post(
+                SANDBOX_URL,
+                body=b"%PDF",
+                headers={"Content-Type": "application/pdf"},
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            file = await client.async_download_homework_attachment("78")
+
+            assert file.filename == "homework-file-78"
+            assert file.content_type == "application/pdf"
+            assert mocked.get_calls[SANDBOX_URL] == 2
+
+
+async def test_download_homework_attachment_login_redirect_is_session_expiry() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/79",
+                status=302,
+                headers={"Location": "/loguj"},
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusSessionExpiredError):
+                await client.async_download_homework_attachment("79")
+
+
+async def test_download_homework_attachment_failed() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/80",
+                status=302,
+                headers={"Location": f"{SANDBOX_URL}?action=CSDownloadFailed"},
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusUnexpectedResponseError):
+                await client.async_download_homework_attachment("80")
+
+
+async def _no_sleep(_seconds: float) -> None:
+    return None
