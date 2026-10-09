@@ -214,15 +214,29 @@ async def test_descriptive_grades_named_by_skill() -> None:
             mock_successful_login(session, mocked)
             mocked.get(
                 f"{DATA_BASE_URL}/DescriptiveGrades",
-                json_data={"Grades": [{"Id": 1, "Skill": {"Id": 501}, "Grade": 3, "Map": "6"}]},
+                json_data={
+                    "Grades": [
+                        {
+                            "Id": 1,
+                            "Skill": {"Id": 501},
+                            "Grade": 3,
+                            "Map": "6",
+                            "Comments": [{"Id": 44}],
+                        }
+                    ]
+                },
             )
             mocked.get(
                 f"{DATA_BASE_URL}/DescriptiveGrades/Skills",
                 json_data={"Skills": [{"Id": 501, "Name": "Rytmika"}]},
             )
+            mocked.get(
+                f"{DATA_BASE_URL}/DescriptiveGrades/Comments",
+                json_data={"Comments": [{"Id": 44, "Text": "Brawo"}]},
+            )
             librus = Librus("1234567u", "pw", session=session)
             (grade,) = await librus.descriptive_grades()
-    assert (grade.value, grade.skill) == ("6", "Rytmika")
+    assert (grade.value, grade.skill, grade.comments) == ("6", "Rytmika", ["Brawo"])
 
 
 async def test_no_descriptive_grades_skips_the_skills_list() -> None:
@@ -233,3 +247,4 @@ async def test_no_descriptive_grades_skips_the_skills_list() -> None:
             librus = Librus("1234567u", "pw", session=session)
             assert await librus.descriptive_grades() == []
             assert f"{DATA_BASE_URL}/DescriptiveGrades/Skills" not in mocked.get_calls
+            assert f"{DATA_BASE_URL}/DescriptiveGrades/Comments" not in mocked.get_calls

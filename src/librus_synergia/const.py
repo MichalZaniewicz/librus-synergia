@@ -205,6 +205,9 @@ ENDPOINT_DESCRIPTIVE_GRADES = "DescriptiveGrades"
 # Every descriptive-grade skill of the school, CONFIRMED live 2026-10-09
 # (~1100 entries) - the name of a DescriptiveGrades item's Skill.
 ENDPOINT_DESCRIPTIVE_GRADE_SKILLS = "DescriptiveGrades/Skills"
+# Teachers' comments on descriptive grades, CONFIRMED live 2026-10-09 - same
+# {"Comments": [{"Id", "Text", "AddedBy", "Grade"}]} shape as Grades/Comments.
+ENDPOINT_DESCRIPTIVE_GRADE_COMMENTS = "DescriptiveGrades/Comments"
 ENDPOINT_TEXT_GRADES = "TextGrades"
 
 # Wiadomości (private messages) is a SEPARATE subsystem on its own domain,

@@ -144,8 +144,9 @@ def parse_grade_categories(payload: dict[str, Any]) -> dict[int, GradeCategoryDa
 
 def parse_comment_text_map(payload: dict[str, Any] | None) -> dict[int, str]:
     """Parses a `{"Comments": [{"Id", "Text"}, ...]}`-shaped payload (used
-    by both `Grades/Comments` and `BehaviourGrades/Points/Comments`,
-    CONFIRMED live 2026-09-06 to share this shape) into an id->text map."""
+    by `Grades/Comments` and `BehaviourGrades/Points/Comments`, CONFIRMED
+    live 2026-09-06 to share this shape, and `DescriptiveGrades/Comments`,
+    CONFIRMED live 2026-10-09) into an id->text map."""
     if not payload:
         return {}
     items = payload.get("Comments")
@@ -690,15 +691,19 @@ def parse_behaviour_grades(
 
 
 def parse_descriptive_grades(
-    payload: dict[str, Any], skills: dict[int, str] | None = None
+    payload: dict[str, Any],
+    skills: dict[int, str] | None = None,
+    comments: dict[int, str] | None = None,
 ) -> list[DescriptiveGradeData]:
     """`DescriptiveGrades` -> grades. CONFIRMED live 2026-10-09 (a parent
     account, music in grade 1): the grade shown in Synergia is `Map` ("6",
     `RealGradeValue` holds the same), NOT `Grade` (3 for that "6");
     `Skill.Id` is resolved through `skills` (`parse_descriptive_skills`),
     `AddedBy.Id` is the teacher, `Comments` is a list of `{"Id"}` into
-    `DescriptiveGrades/Comments`."""
+    `DescriptiveGrades/Comments`, resolved to text through `comments`
+    (`parse_comment_text_map`)."""
     skills = skills or {}
+    comments = comments or {}
     items = payload.get("Grades")
     if not isinstance(items, list):
         return []
@@ -726,6 +731,7 @@ def parse_descriptive_grades(
                 date=item.get("Date"),
                 semester=as_int(item.get("Semester")),
                 comment_ids=comment_ids,
+                comments=[comments[c] for c in comment_ids if c in comments],
             )
         )
     return grades

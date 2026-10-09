@@ -397,8 +397,9 @@ class DescriptiveGradeData:
     `Map` ("6", same as `RealGradeValue`) - the item's `Grade` field holds
     something else (3 for a "6"). `skill` is the skill the grade is for
     (Synergia's "Kategoria" column, from `DescriptiveGrades/Skills`).
-    `comment_ids` point into `DescriptiveGrades/Comments`. These grades
-    don't count towards the average."""
+    `comments` is the teacher's comment text (`DescriptiveGrades/Comments`,
+    `comment_ids` the raw ids). These grades don't count towards the
+    average."""
 
     id: int
     subject_id: int | None
@@ -411,6 +412,7 @@ class DescriptiveGradeData:
     date: str | None = None
     semester: int | None = None
     comment_ids: list[int] = field(default_factory=list)
+    comments: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

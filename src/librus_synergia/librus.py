@@ -371,18 +371,28 @@ class Librus:
         return parsers.parse_grade_categories(payload)
 
     async def descriptive_grades(self) -> list[DescriptiveGradeData]:
-        """Descriptive grades with their skill names. The skills list is
-        only fetched when there are grades to name."""
+        """Descriptive grades with their skill names and comments. Both
+        lookups are only fetched when there are grades, and either may fail
+        without losing the grades."""
         payload = await self._call(self.client.async_get_descriptive_grades)
-        skills: dict[int, str] = {}
-        if payload.get("Grades"):
+        if not payload.get("Grades"):
+            return []
+
+        async def lookup(fetch: Callable[[], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
             try:
-                skills = parsers.parse_descriptive_skills(
-                    await self._call(self.client.async_get_descriptive_grade_skills)
-                )
+                return await self._call(fetch)
             except LibrusError:
-                skills = {}
-        return parsers.parse_descriptive_grades(payload, skills)
+                return {}
+
+        skills, comments = await asyncio.gather(
+            lookup(self.client.async_get_descriptive_grade_skills),
+            lookup(self.client.async_get_descriptive_grade_comments),
+        )
+        return parsers.parse_descriptive_grades(
+            payload,
+            parsers.parse_descriptive_skills(skills),
+            parsers.parse_comment_text_map(comments),
+        )
 
     async def point_grades(self) -> list[PointGradeData]:
         """Point grades (schools grading in points or percent), with each

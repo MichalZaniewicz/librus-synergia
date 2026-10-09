@@ -35,6 +35,7 @@ from .const import (
     ENDPOINT_CLASS_FREE_DAYS,
     ENDPOINT_CLASSES,
     ENDPOINT_CLASSROOMS,
+    ENDPOINT_DESCRIPTIVE_GRADE_COMMENTS,
     ENDPOINT_DESCRIPTIVE_GRADE_SKILLS,
     ENDPOINT_DESCRIPTIVE_GRADES,
     ENDPOINT_GRADE_CATEGORIES,
@@ -656,6 +657,11 @@ class LibrusApiClient:
         """Names of descriptive-grade skills (the whole school's, ~330 KB).
         See `parse_descriptive_skills`."""
         return await self._async_request(ENDPOINT_DESCRIPTIVE_GRADE_SKILLS)
+
+    async def async_get_descriptive_grade_comments(self) -> dict[str, Any]:
+        """Teachers' comments on descriptive grades. See
+        `parse_comment_text_map`."""
+        return await self._async_request(ENDPOINT_DESCRIPTIVE_GRADE_COMMENTS)
 
     async def async_get_text_grades(self) -> dict[str, Any]:
         """The older `TextGrades` endpoint. Real text grades on the tested

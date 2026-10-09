@@ -10,11 +10,12 @@
 
 ### Added
 - `DescriptiveGradeData.skill` (the skill name, e.g. "Ekspresja muzyczna.
-  Śpiew"), `teacher_id`, `date`, `semester` and `comment_ids`.
-  `parse_descriptive_skills()` and
-  `LibrusApiClient.async_get_descriptive_grade_skills()`
-  (`DescriptiveGrades/Skills`); `Librus.descriptive_grades()` fills in the
-  skill names (and only fetches the skills list when there are grades).
+  Śpiew"), `comments` (the teacher's comments), `teacher_id`, `date`,
+  `semester` and `comment_ids`. `parse_descriptive_skills()`,
+  `LibrusApiClient.async_get_descriptive_grade_skills()` and
+  `async_get_descriptive_grade_comments()` (`DescriptiveGrades/Skills`,
+  `DescriptiveGrades/Comments`); `Librus.descriptive_grades()` fills in skill
+  names and comments (fetching both only when there are grades).
 
 ## 0.3.12
 

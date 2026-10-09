@@ -830,11 +830,23 @@ def test_parse_descriptive_grades_reads_map_skill_and_teacher() -> None:
             ]
         },
         skills,
+        parsers.parse_comment_text_map(
+            {
+                "Comments": [
+                    {
+                        "Id": 44,
+                        "AddedBy": {"Id": 7},
+                        "Grade": {"Id": 1},
+                        "Text": "Mazurek - cztery zwrotki",
+                    }
+                ]
+            }
+        ),
     )
     first, second = grades
     assert first.value == "6"
     assert (first.subject_id, first.skill_id, first.skill) == (9, 501, "Ekspresja muzyczna. Śpiew")
     assert (first.teacher_id, first.date, first.semester) == (7, "2026-09-30", 1)
-    assert first.comment_ids == [44]
+    assert (first.comment_ids, first.comments) == ([44], ["Mazurek - cztery zwrotki"])
     # No Map -> RealGradeValue; an unknown skill keeps its id only.
     assert (second.value, second.skill, second.comment_ids) == ("5", None, [])
