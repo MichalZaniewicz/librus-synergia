@@ -830,9 +830,39 @@ class LibrusApiClient:
         `download_failed` (or not JSON), while a fresh key for the same file
         works a moment later - so a failed key is retried with a new one, up
         to `_SANDBOX_KEY_ROUNDS` times."""
-        fallback_name = f"homework-file-{attachment_id}"
+        return await self._async_download_via_synergia(
+            f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/{attachment_id}",
+            f"homework-file-{attachment_id}",
+            max_wait_attempts=max_wait_attempts,
+        )
+
+    async def async_download_school_file(
+        self, download_path: str, *, max_wait_attempts: int = 15
+    ) -> AttachmentFileData:
+        """Download one school document (`SchoolFileData.download_path`,
+        e.g. `/pliki_szkoly/pobierz/<id>`). CONFIRMED live 2026-10-09: the
+        page redirects to a `sandbox.librus.pl/GetFile/...` link, like a
+        message attachment. Needs the Synergia web session, so the link
+        alone doesn't work in a browser that isn't logged in."""
+        url = (
+            download_path
+            if download_path.startswith("http")
+            else f"https://{SYNERGIA_DOMAIN}{download_path}"
+        )
+        return await self._async_download_via_synergia(
+            url,
+            f"school-file-{download_path.rstrip('/').rsplit('/', 1)[-1]}",
+            max_wait_attempts=max_wait_attempts,
+        )
+
+    async def _async_download_via_synergia(
+        self, url: str, fallback_name: str, *, max_wait_attempts: int
+    ) -> AttachmentFileData:
+        """A Synergia page that redirects to the sandbox: a `GetFile` link,
+        or a `singleUseKey` one (a rejected key is retried with a fresh
+        link, up to `_SANDBOX_KEY_ROUNDS` times)."""
         for round_no in range(_SANDBOX_KEY_ROUNDS):
-            link = await self._async_homework_download_link(attachment_id)
+            link = await self._async_synergia_download_link(url)
             key = _SINGLE_USE_KEY_RE.search(link)
             if key is None:
                 return await self._async_fetch_sandbox_file(
@@ -848,9 +878,8 @@ class LibrusApiClient:
                 await asyncio.sleep(2)
         raise AssertionError("unreachable")
 
-    async def _async_homework_download_link(self, attachment_id: str) -> str:
-        """The sandbox link Synergia's `homework/downloadFile` redirects to."""
-        url = f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/{attachment_id}"
+    async def _async_synergia_download_link(self, url: str) -> str:
+        """The sandbox link a Synergia download page redirects to."""
         try:
             async with self._session.get(
                 url, headers={"User-Agent": USER_AGENT}, allow_redirects=False
@@ -866,13 +895,19 @@ class LibrusApiClient:
             )
         if status == 503:
             raise LibrusServerMaintenanceError(f"Librus is under maintenance (HTTP 503) on {url}.")
-        if not location:
-            raise LibrusUnexpectedResponseError(
-                f"No download link for homework file {attachment_id}"
+        if status == 200 and not location:
+            # Found live (2026-10-09): Synergia's web session (DZIENNIKSID)
+            # can die while the API session still works - the page then
+            # answers 200 instead of redirecting to the file. A fresh login
+            # fixes it, so report it as a dead session.
+            raise LibrusSessionExpiredError(
+                f"Session rejected on {url} (HTTP 200 without a redirect).", status_code=status
             )
+        if not location:
+            raise LibrusUnexpectedResponseError(f"No download link on {url}")
         link = urljoin(url, location)
         if "CSDownloadFailed" in link:
-            raise LibrusUnexpectedResponseError(f"Homework file {attachment_id} not found")
+            raise LibrusUnexpectedResponseError(f"File not found on {url}")
         if "sandbox.librus.pl" not in link:
             # Synergia sends a dead session to its login page.
             raise LibrusSessionExpiredError(

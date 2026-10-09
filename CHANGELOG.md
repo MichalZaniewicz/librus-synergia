@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Download a school document.** `LibrusApiClient.async_download_school_file()`
+  / `Librus.download_school_file()` fetch a document from `SchoolFiles`
+  (`/pliki_szkoly/pobierz/<id>` redirects to the sandbox, checked live). The
+  link alone needs a logged-in Synergia session, so it doesn't work in a
+  browser that isn't logged in.
+
+### Fixed
+- **A homework file download after Synergia's web session expired.** The API
+  session can keep working while the web session behind
+  `homework/downloadFile` has died; the page then answers 200 instead of
+  redirecting to the file. That is now reported as an expired session
+  (`LibrusSessionExpiredError`), so a fresh login fixes it, instead of a
+  "no download link" error (seen live).
+
 ## 0.3.14
 
 ### Added

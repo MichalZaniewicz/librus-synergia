@@ -587,6 +587,11 @@ class Librus:
             lambda: self.client.async_download_homework_attachment(attachment_id)
         )
 
+    async def download_school_file(self, download_path: str) -> AttachmentFileData:
+        """Download a school document (`school_files()[].download_path`).
+        Uses the main Synergia session."""
+        return await self._call(lambda: self.client.async_download_school_file(download_path))
+
     async def justifications(self) -> list[JustificationData]:
         """Absence justifications the parent submitted, newest first, with
         their status. `parsers.justified_dates()` turns them into the days

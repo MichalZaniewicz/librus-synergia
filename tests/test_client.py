@@ -508,3 +508,42 @@ async def test_download_homework_attachment_reports_a_timeout(monkeypatch) -> No
                 await client.async_download_homework_attachment("82")
 
             assert mocked.post_calls[SANDBOX_URL] == 15
+
+
+async def test_download_homework_attachment_page_without_redirect_is_session_expiry() -> None:
+    """Found live: the web session (DZIENNIKSID) died while the API still
+    worked - the page answers 200 instead of redirecting to the file."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/81", text_data="<html>Brak dostępu</html>"
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusSessionExpiredError):
+                await client.async_download_homework_attachment("81")
+
+
+async def test_download_school_file() -> None:
+    link = "https://sandbox.librus.pl/GetFile/DOCKEY"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                "https://synergia.librus.pl/pliki_szkoly/pobierz/5",
+                status=302,
+                headers={"Location": link},
+            )
+            mocked.get(link, text_data="<html>wait</html>", headers={"Content-Type": "text/html"})
+            mocked.get(
+                f"{link}/get",
+                body=b"%PDF doc",
+                headers={
+                    "Content-Type": "application/pdf",
+                    "Content-Disposition": 'attachment; filename="regulamin.pdf"',
+                },
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            file = await client.async_download_school_file("/pliki_szkoly/pobierz/5")
+
+            assert (file.filename, file.content) == ("regulamin.pdf", b"%PDF doc")
