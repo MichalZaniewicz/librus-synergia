@@ -30,10 +30,27 @@ Two things apply to every endpoint:
 | `Units` | — | ✅ School configuration: `GradesSettings.{Standard,Point,Descriptive}GradesEnabled`, bell schedule (`LessonsRange`), behaviour-points settings. |
 | `VirtualClasses` | `VirtualClasses` | ✅ Reachable, empty on tested accounts. |
 | `Users/{Me.Account.UserId}` | `User` | ✅ The **student's** own user record (live 2026-10-07): `Id`, `AccountId` (a `LID-AUTH-USER-...`), `AccountNumericIdentifier`, `FirstName`, `LastName`, `Class.Id`/`UUID`, `Unit.Id`, **`ClassRegisterNumber`** (the class register number), `IsEmployee`, `GroupId`. `Users/{Me.Account.Id}` is 404 - `Account.Id` is the parent's login account. |
-| `Auth/TokenInfo`, `Auth/UserInfo/<lid>` | — | Identity of the token's user; used only to find the child on [kindergarten accounts](kindergarten.md). |
+| `Auth/TokenInfo`, `Auth/UserInfo/<lid>` | — | Identity of the token's user; used to find the child on [kindergarten accounts](kindergarten.md). ✅ On a school parent account (2026-10-09): `TokenInfo` = `SchoolId`, `UserIdentifier` (a LID), `UserType`, `SchoolNodeName`, `Scopes` (47 strings); `UserInfo/<UserIdentifier>` = `UserIdentifier`, `UserNumericIdentifier`, `AccountNumericIdentifier`, `SchoolId`, `UserType`, `UserSchoolClassId`, **`IdentifierOfStudentAssignedWithUser`** (the child's LID), `IdentifierOfClassOfStudentAssignedWithUser`, `UserState`, `KindergartenGraduationYear`, `Login`, `Gender`. |
+| `Auth/Subjects` | `data` | ✅ Subjects keyed by LID (77 on the tested school): `identifier` (LID), `numericIdentifier` (the id `Subjects` uses), `name`, `type`, `extracurricular`, `schemaNumber`. Maps the LID subject ids of the new descriptive grading (below) to ordinary ones. |
+| `POST Auth/DescriptiveGradingSystem/PartialGrades/Student/<child LID>` (body `{}`) | `data` | ✅ Reachable for a grade 7 parent account (2026-10-09): `{"data": [], "pagination": {"limit", "page", "total"}}`. The **new descriptive grading** some schools use for grade 1 from 2026 - separate from `DescriptiveGrades`; the grade page in Synergia stays empty and loads these. 📖 An item: `gradeId`, `studentId`, `teacherId`, `addedBy` (LIDs), `area` (`id`, `name`, `color`), `subjectId` (a LID, see `Auth/Subjects`), `lessonAssignmentId`, `scaleValue` (`id`, `value`), `content`, `comments`, `implementedRequirements` (`id`, `name`), `date`, `semester`, `addDate`. `GET Auth/DescriptiveGradingSystem/PartialGrades` is 405 and lists `.../LessonAssignments`. Not parsed yet. |
 | `UserProfile` | `UserProfile` | ✅ `ClassNumber` (e.g. 7), `AccountType` ("parent"), `Town`, `State`, `UnitType` ("Szkoła podstawowa"). |
-| `Root` | `Resources` | ✅ An index of every module, with its URL. On a tested parent account it listed (among others) `Realizations`, `SchoolTrips`, `SchoolFiles`, `TimetableEntries`, `BaseTextGrades`, `Calendars`, `Colors`, `Surveys`, `SpecialAchievement`, `EbiblioLendings`, `StudentInsurances`, `PushChanges`, `PushDevices`, `SilentNight`, `NotificationCenterDeferrals` - being listed doesn't mean readable (see the 403/404s below). `Me` also carries `Refresh: 900` and lists `Me/PeriodicGradeAverages`, `Me/BehaviourDescriptiveGrades`. |
+| `Root` | `Resources` | ✅ An index of every module, with its URL. On a tested parent account it listed (among others) `Realizations`, `SchoolTrips`, `SchoolFiles`, `TimetableEntries`, `BaseTextGrades`, `Calendars`, `Colors`, `Surveys`, `SpecialAchievement`, `EbiblioLendings`, `StudentInsurances`, `PushChanges`, `PushDevices`, `SilentNight`, `NotificationCenterDeferrals` - being listed doesn't mean readable (see the 403/404s below). ✅ The full list on a tested parent account (2026-10-09, 89 names) also has `AdditionalModulesAccess`, `BehaviourDescriptiveGrades`, `ChangeRegister`, `DeclarationOfAvailability`, `Duties`, `Educators`, `Employees`, `ExamResult`, `GradingSystem`, `Indywidualni`, `Messages`, `Motions`, `PersonalDataAccesses`, `PlannedLessons`, `PushConfigurations`, `Reports`, `SchoolInfo`, `StudentDuty`, `SystemData`, `WhatsNew` and a few app-only ones (`BannerAds`, `PremiumAccount*`, `WcagSettings`, ...). `Me` also carries `Refresh: 900` and lists `Me/PeriodicGradeAverages`, `Me/BehaviourDescriptiveGrades`. |
 | *web page* `synergia.librus.pl/informacja` | — | ✅ Not part of the API: an HTML page with the student's details, including a `<th>Nr w dzienniku</th><td>25</td>` row. Only a **fallback** for the class register number - the JSON `Users/{Me.Account.UserId}.ClassRegisterNumber` above is the source. Opens with the same cookie session as the API (confirmed live 2026-10-07; a dead session redirects to the login page). Parsed by `parse_student_number`. |
+
+### Other modules, checked 2026-10-09 (parent account)
+
+| Endpoint | Result |
+|---|---|
+| `AdditionalModulesAccess` | ✅ 200 `{"Data": {"module", "access"}}` |
+| `SystemData` | ✅ 200 `{"Date", "Time"}` - the server's date and time |
+| `PushConfigurations` | ✅ 200 `{"version", "settings": {...}}` - which changes the app pushes (grades, attendances, calendars, notes, homeWorks, notices, plannedLessons, realizations, ... each `add`/`edit`/`delete`) |
+| `Auth/Photos` | ✅ 200 `{"data": {"status", "photo", "awaitingPhoto"}}` (no photo on the tested account) |
+| `Calendars/SchoolFreeDays`, `Calendars/ClassFreeDays` | ✅ 200, the same data as `SchoolFreeDays` / `ClassFreeDays` (with `AddDate`) |
+| `Educators` | ✅ 405 - only lists `Educators/EducatorCalendarTasks` |
+| `ChangeRegister` | ✅ 400 `InvalidRequest` - needs parameters (not known) |
+| `SchoolInfo`, `Duties`, `WhatsNew` | ✅ 401 `Insufficient scopes` |
+| `StudentDuty` | ✅ 403 `Account not have access to resource` |
+| `ExamResult`, `DescriptiveLessonGrades` | ✅ 404 |
 
 ## Lookups (cache ~24 h)
 
@@ -178,6 +195,7 @@ GET Timetables?weekStart=YYYY-MM-DD      (a Monday)
 - ✅ `Timetables/OtherActivitiesRegister?dateFrom=&dateTo=&hideOutdatedEntries=false` answers `{"data": [...]}` (extracurricular activities); empty on the tested account.
 - ✅ **`Realizations`** = the **lessons held, with their topics** (168 entries a month into the year): `Id` (a `t`-prefixed string), `Lesson.Id`, `LessonNo`, `Date`, **`Topic`**, `IsTrip`, `CountInStatistics`, `CountInRPN`, `AddedBy.Id`. The JSON counterpart of the `zrealizowane_lekcje` web page. Also `Realizations/TypesOfDays` (`Dzień powszedni`, `Święto`), `/TypesOfClasses`, `/ThematicTeaching`, `/FilledByTeacher`.
 - ✅ `PlannedLessons` is reachable and empty on the tested account.
+- ✅ `Timetables?day=YYYY-MM-DD` returns just that one day (`weekStart=` returns 7). Not used by the library.
 - ✅ Other lesson fields seen: `Lesson`, `Class`, `DateFrom`, `DateTo`,
   `DayNo`, `TimetableEntry`, `VirtualClass`/`VirtualClassName` (on lessons
   for a virtual class / group).
@@ -209,7 +227,7 @@ no JSON at all on Gateway 2.0 - it most likely lives on the newer
 | Endpoint | Root key | Notes |
 |---|---|---|
 | `SchoolNotices` | `SchoolNotices` | ✅ `Subject`, `Content` (full text, not truncated), `StartDate`, `EndDate`, `CreationDate`, `WasRead`. ✅ `Id` is a **string**. |
-| `LuckyNumbers` | `LuckyNumber` | ✅ `{"LuckyNumber": {"LuckyNumber": 13, "LuckyNumberDay": "2026-09-08"}}`. ✅ The number for the **next** school day can appear a day early, so check `LuckyNumberDay`. |
+| `LuckyNumbers` | `LuckyNumber` | ✅ `{"LuckyNumber": {"LuckyNumber": 13, "LuckyNumberDay": "2026-09-08"}}`. ✅ The number for the **next** school day can appear a day early, so check `LuckyNumberDay`. ✅ `?forDay=YYYY-MM-DD` answers 403 on a parent account. |
 
 The student's own class-register number is in the JSON API: ✅
 `Users/{Me.Account.UserId}.ClassRegisterNumber` (see

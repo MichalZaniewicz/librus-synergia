@@ -24,13 +24,18 @@ Base: `https://wiadomosci.librus.pl/api`
 
 | Request | Notes |
 |---|---|
-| `GET /inbox/unreadMessagesCount` | ✅ `{"data": {"inbox": 2, "notes": 0, "alerts": 1, "substitutions": 0, "absences": 0, "justifications": 0, "trash": 0}}`: counts for every mailbox in one call. |
+| `GET /inbox/unreadMessagesCount` | ✅ `{"data": {"inbox": 2, "notes": 0, "alerts": 1, "substitutions": 0, "absences": 0, "justifications": 0, "trash": 0}}`: counts for every mailbox in one call. ✅ Also `archiveInbox`, `archiveNotes`, ... - one archive counter per mailbox (14 in all). |
 | `GET /<mailbox>/messages?limit=10[&unreadOnly=1]` | ✅ `{"data": [...], "total": N}`. ✅ At least one secondary mailbox returns a **bare JSON array** without the `data` envelope. ✅ Listing **does not** mark anything read. |
 | `GET /<mailbox>/messages/<id>` | ✅ The full message. ⚠️ **Marks the message read**, exactly like opening it in the app. |
 | `GET /me` | ✅ The logged-in account: `firstName`, `lastName`, `groupName` ("rodzic"), `accountId`, `accessToAttachments`. |
 | `GET /outbox/messages` | ✅ Messages you sent (`receiverName`, `topic`, `content`, `sendDate`). No read-marking involved. `messages("outbox")` fills `MessageData.receiver_name`. ✅ An item has `receiverName` and also `receiverFirstName`/`receiverLastName` (used when `receiverName` is empty), plus `messageId`, `tags`, `category`, `isAnyFileAttached`. |
 | `GET /archive/inbox/messages` | ✅ Archived (past years) inbox, same item shape, `total` and `archivingInProgress`. `messages("archive/inbox")`. ✅ Opening one (`/archive/inbox/messages/<id>`, checked 2026-10-09) returns the same `{"data": {...}}` shape as an inbox message - base64 `Message`, `attachments` (`filename`, `id`) - and `parse_message(payload, "archive/inbox", id)` reads it. ❓ The tested message was already read, so whether opening an unread archived one marks it read wasn't seen (assume it does). |
 | `GET /receivers/student-subjects` | ✅ `[{"teacherIdentifier", "subject"}]` - the student's teachers with their subjects. |
+| `GET /inbox/messages/senders?page=1&limit=50` | ✅ `{"data": [{"senderId", "senderFirstName", "senderLastName"}]}` - everyone who wrote to the account (a group sender comes with the whole name in `senderFirstName`). |
+| `GET /outbox/messages/receivers?page=1&limit=50` | ✅ `{"data": [{"receiverId", "receiverFirstName", "receiverLastName"}]}` |
+| `GET /outbox/messages/<id>` | ✅ A sent message in full: the same shape as an inbox message plus **`receivers`** - one entry per recipient with `firstName`, `lastName`, `group` and **`readed`** (when they read it), and `receiversCount` / `readedCount`. No side effect. |
+| `GET /archive/outbox/messages` | ✅ Archived sent messages, the outbox item shape plus `total` and `archivingInProgress`. |
+| `GET /receivers/types?includeClass=true` | ✅ `{"data": {"defaultGroup", "list": [{"id", "name"}]}}` - the recipient groups a parent can write to (15 on the tested school). |
 
 Mailboxes: `inbox`, `notes`, `alerts`, `substitutions`, `absences`,
 `justifications`, `trash`. ✅ For some accounts `alerts`/`substitutions`
