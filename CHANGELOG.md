@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Added
+- **The school's own `+` and `-` values.** `Librus.grading_system()` /
+  `parse_grading_system()` read `GradingSystem` (what `+` adds, what `-`
+  takes away, whether `0` counts), and `parse_grade_value(value, grading)`
+  uses them. Without it the values stay +0.5 / -0.25, which is what the
+  tested school uses. `LibrusData.grading_system` carries it.
+- **The new descriptive grading for grade 1** (some schools from 2026):
+  `Librus.partial_grades()`, `LibrusApiClient.async_get_partial_grades()`
+  (a POST), `parse_partial_grades()`, `parse_auth_subjects()`
+  (`Auth/Subjects`), `extract_student_identifier()` and
+  `Librus.student_identifier()`. They come back as `DescriptiveGradeData`
+  with `source="partial"`, a string id (`"p<gradeId>"`), `teacher_lid` and
+  `requirements`; `fetch_all()` adds them to `descriptive_grades`. The
+  endpoint is confirmed reachable, but the grade fields are known only from
+  another client's code - no such grade has been seen yet.
+- **Read receipts for sent messages.** `FullMessageData.receivers` lists the
+  recipients of a sent message (`outbox/messages/<id>`) with when each one
+  read it (`MessageReceiverData.read_date`).
+
 ### Fixed
 - A descriptive grade without `Map` / `RealGradeValue` no longer takes its
   value from `Grade`: that field is the grade's range on the scale (1-3, seen

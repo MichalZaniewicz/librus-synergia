@@ -93,6 +93,8 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `student_number()` | class register number (nr w dzienniku), from the student's `Users` record (web page as fallback) |
 | `grades()`, `grade_categories()` | grades with teacher comments resolved; weights and categories |
 | `descriptive_grades()`, `behaviour_grades()` | descriptive grades (grade, skill, teacher, comments); formal behaviour grade (ocena zachowania) |
+| `partial_grades()` | grades from the new descriptive grading some schools use for grade 1 from 2026 (`source="partial"`; the item fields are not yet confirmed on a real grade) |
+| `grading_system()` | the school's scale: what `+` adds, what `-` takes away, whether `0` counts - pass it to `parse_grade_value(value, grading)` |
 | `point_grades()` | point grades (schools grading 0-100 or in points) with each category's maximum and weight; `parsers.point_grades_percentage()` averages them |
 | `notes()`, `note_categories()` | behaviour notes (uwagi) with positive/negative/neutral `sentiment` |
 | `attendances()`, `attendance_types()` | attendance records; types with `is_presence_kind` / `is_excused_absence` |

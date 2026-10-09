@@ -60,7 +60,7 @@ def _print_summary(data: LibrusData) -> None:
     print("\nOstatnie oceny:")
     grades = sorted(data.grades, key=lambda g: g.add_date or "", reverse=True)[:8]
     for g in grades or []:
-        value = parse_grade_value(g.value)
+        value = parse_grade_value(g.value, data.grading_system)
         suffix = "" if value is None else f"  ({value:g})"
         print(
             f"  {(g.add_date or '')[:10]}  {_name(data.subjects, g.subject_id):<28} {g.value}{suffix}"

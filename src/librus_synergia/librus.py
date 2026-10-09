@@ -35,6 +35,7 @@ from .models import (
     FullMessageData,
     GradeCategoryData,
     GradeData,
+    GradingSystemData,
     HomeworkAssignmentData,
     HomeworkEventData,
     JustificationData,
@@ -97,6 +98,8 @@ class Librus:
         # once per instance.
         self._kindergarten_lock = asyncio.Lock()
         self._kindergarten_checked = False
+        self._student_identifier: str | None = None
+        self._student_identifier_checked = False
         self._kindergarten_lid: str | None = None
         self._kindergarten_group_id: str | None = None
 
@@ -394,6 +397,42 @@ class Librus:
             parsers.parse_comment_text_map(comments),
         )
 
+    async def student_identifier(self) -> str | None:
+        """The child's LID (`Auth/UserInfo/<token user>` ->
+        `IdentifierOfStudentAssignedWithUser`), looked up once; None when
+        Librus doesn't give one."""
+        if not self._student_identifier_checked:
+            self._student_identifier_checked = True
+            token_lid = parsers.extract_token_user_identifier(
+                await self._probe(self.client.async_get_token_info)
+            )
+            if token_lid:
+                self._student_identifier = parsers.extract_student_identifier(
+                    await self._probe(lambda: self.client.async_get_user_info(token_lid))
+                )
+        return self._student_identifier
+
+    async def partial_grades(self) -> list[DescriptiveGradeData]:
+        """Grades from the new descriptive grading (grade 1 at some schools
+        from 2026), as `DescriptiveGradeData` with `source="partial"` -
+        see `parsers.parse_partial_grades`. Empty when Librus has none or
+        no child LID is known."""
+        student = await self.student_identifier()
+        if not student:
+            return []
+        payload = await self._call(lambda: self.client.async_get_partial_grades(student))
+        if not payload.get("data"):
+            return []
+        subjects = parsers.parse_auth_subjects(
+            await self._probe(self.client.async_get_auth_subjects)
+        )
+        return parsers.parse_partial_grades(payload, subjects)
+
+    async def grading_system(self) -> GradingSystemData:
+        """The school's grade scale settings ("+" / "-" values, whether 0
+        counts). Pass it to `parsers.parse_grade_value`."""
+        return parsers.parse_grading_system(await self._call(self.client.async_get_grading_system))
+
     async def point_grades(self) -> list[PointGradeData]:
         """Point grades (schools grading in points or percent), with each
         category's maximum and weight. Average them with
@@ -663,6 +702,8 @@ class Librus:
             homework,
             behaviour,
             descriptive,
+            partial,
+            grading,
             point,
             justifications,
             text_grades,
@@ -686,6 +727,8 @@ class Librus:
             optional(self.homework(), []),
             optional(self.behaviour_grades(), []),
             optional(self.descriptive_grades(), []),
+            optional(self.partial_grades(), []),
+            optional(self.grading_system(), GradingSystemData()),
             optional(self.point_grades(), []),
             optional(self.justifications(), []),
             optional(self.text_grades(), []),
@@ -719,7 +762,8 @@ class Librus:
             note_categories=note_categories,
             homework_assignments=homework,
             behaviour_grades=behaviour,
-            descriptive_grades=descriptive,
+            descriptive_grades=descriptive + partial,
+            grading_system=grading,
             point_grades=point,
             justifications=justifications,
             text_grades=text_grades,

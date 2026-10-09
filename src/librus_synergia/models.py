@@ -391,6 +391,18 @@ class BehaviourGradeData:
 
 
 @dataclass(slots=True)
+class GradingSystemData:
+    """The school's grade scale settings (`GradingSystem`, CONFIRMED live
+    2026-10-09): what a "+" adds and a "-" takes away, and whether a 0
+    counts towards the average. The defaults are what the tested school
+    uses."""
+
+    plus_value: float = 0.5
+    minus_value: float = 0.25
+    count_zero: bool = False
+
+
+@dataclass(slots=True)
 class DescriptiveGradeData:
     """A grade in a descriptive/skills-based subject (`DescriptiveGrades`),
     e.g. music in grades 1-3. CONFIRMED live 2026-10-09: the shown grade is
@@ -399,9 +411,15 @@ class DescriptiveGradeData:
     (Synergia's "Kategoria" column, from `DescriptiveGrades/Skills`).
     `comments` is the teacher's comment text (`DescriptiveGrades/Comments`,
     `comment_ids` the raw ids). These grades don't count towards the
-    average."""
+    average.
 
-    id: int
+    `source` is `"descriptive"` for `DescriptiveGrades`, or `"partial"` for
+    the new descriptive grading some schools use for grade 1 from 2026
+    (`parse_partial_grades`): its id is a string (`"p<gradeId>"`), the
+    teacher comes as a LID (`teacher_lid`) and `requirements` lists what
+    the grade confirms."""
+
+    id: int | str
     subject_id: int | None
     value: str
     skill_id: int | None
@@ -413,6 +431,9 @@ class DescriptiveGradeData:
     semester: int | None = None
     comment_ids: list[int] = field(default_factory=list)
     comments: list[str] = field(default_factory=list)
+    source: str = "descriptive"
+    teacher_lid: str | None = None
+    requirements: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -649,6 +670,7 @@ class LibrusData:
     behaviour_grades: list[BehaviourGradeData] = field(default_factory=list)
     descriptive_grades: list[DescriptiveGradeData] = field(default_factory=list)
     point_grades: list[PointGradeData] = field(default_factory=list)
+    grading_system: GradingSystemData = field(default_factory=GradingSystemData)
     justifications: list[JustificationData] = field(default_factory=list)
     text_grades: list[TextGradeData] = field(default_factory=list)
     lesson_topics: list[LessonTopicData] = field(default_factory=list)
@@ -687,6 +709,16 @@ class AttachmentData:
 
 
 @dataclass(slots=True)
+class MessageReceiverData:
+    """One recipient of a message you sent, with when they read it
+    (`outbox/messages/<id>` -> `receivers`, CONFIRMED live 2026-10-09)."""
+
+    name: str
+    group: str | None
+    read_date: str | None
+
+
+@dataclass(slots=True)
 class FullMessageData:
     """One message's full, untruncated body (see `parse_message`).
     Fetching this marks the message read on Librus's side."""
@@ -699,3 +731,5 @@ class FullMessageData:
     send_date: str | None
     read_date: str | None
     attachments: list[AttachmentData] = field(default_factory=list)
+    # Sent messages only: who it went to and who has read it.
+    receivers: list[MessageReceiverData] = field(default_factory=list)

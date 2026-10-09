@@ -248,3 +248,45 @@ async def test_no_descriptive_grades_skips_the_skills_list() -> None:
             assert await librus.descriptive_grades() == []
             assert f"{DATA_BASE_URL}/DescriptiveGrades/Skills" not in mocked.get_calls
             assert f"{DATA_BASE_URL}/DescriptiveGrades/Comments" not in mocked.get_calls
+
+
+async def test_partial_grades_and_grading_system() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(
+                f"{DATA_BASE_URL}/Auth/TokenInfo", json_data={"UserIdentifier": "LID-AUTH-USER-1"}
+            )
+            mocked.get(
+                f"{DATA_BASE_URL}/Auth/UserInfo/LID-AUTH-USER-1",
+                json_data={"IdentifierOfStudentAssignedWithUser": "LID-AUTH-USER-2"},
+            )
+            mocked.post(
+                f"{DATA_BASE_URL}/Auth/DescriptiveGradingSystem/PartialGrades/Student/LID-AUTH-USER-2",
+                json_data={
+                    "data": [{"gradeId": 1, "subjectId": "LID-S", "scaleValue": {"value": "B"}}]
+                },
+            )
+            mocked.get(
+                f"{DATA_BASE_URL}/Auth/Subjects",
+                json_data={"data": [{"identifier": "LID-S", "numericIdentifier": 9}]},
+            )
+            mocked.get(
+                f"{DATA_BASE_URL}/GradingSystem", json_data={"plusValue": 0.3, "minusValue": 0.3}
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            (grade,) = await librus.partial_grades()
+            grading = await librus.grading_system()
+            await librus.partial_grades()  # the child's LID is looked up once
+            assert mocked.get_calls[f"{DATA_BASE_URL}/Auth/TokenInfo"] == 1
+    assert (grade.id, grade.subject_id, grade.value) == ("p1", 9, "B")
+    assert (grading.plus_value, grading.minus_value) == (0.3, 0.3)
+
+
+async def test_no_child_identifier_means_no_partial_grades() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/Auth/TokenInfo", status=403, json_data={})
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.partial_grades() == []

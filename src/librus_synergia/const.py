@@ -202,6 +202,15 @@ ENDPOINT_HOMEWORK_ASSIGNMENT_CATEGORIES = "HomeWorkAssignments/Categories"
 # LibrusApiPointGradeCategories.kt).
 ENDPOINT_POINT_GRADE_CATEGORIES = "PointGrades/Categories"
 ENDPOINT_DESCRIPTIVE_GRADES = "DescriptiveGrades"
+# The school's grade scale settings: what "+" and "-" add or take away, and
+# whether a 0 counts. CONFIRMED live 2026-10-09.
+ENDPOINT_GRADING_SYSTEM = "GradingSystem"
+# Subjects keyed by LID (`identifier`) with the ordinary id as
+# `numericIdentifier`. CONFIRMED live 2026-10-09.
+ENDPOINT_AUTH_SUBJECTS = "Auth/Subjects"
+# The new descriptive grading (grade 1, from 2026): POST with body {}.
+# CONFIRMED reachable 2026-10-09 (empty on a grade 7 account).
+ENDPOINT_PARTIAL_GRADES = "Auth/DescriptiveGradingSystem/PartialGrades/Student/{student}"
 # Every descriptive-grade skill of the school, CONFIRMED live 2026-10-09
 # (~1100 entries) - the name of a DescriptiveGrades item's Skill.
 ENDPOINT_DESCRIPTIVE_GRADE_SKILLS = "DescriptiveGrades/Skills"

@@ -28,6 +28,7 @@ from .const import (
     DATA_BASE_URL,
     ENDPOINT_ATTENDANCE_TYPES,
     ENDPOINT_ATTENDANCES,
+    ENDPOINT_AUTH_SUBJECTS,
     ENDPOINT_BASE_TEXT_GRADES,
     ENDPOINT_BEHAVIOUR_GRADES_POINTS,
     ENDPOINT_BEHAVIOUR_GRADES_POINTS_CATEGORIES,
@@ -42,6 +43,7 @@ from .const import (
     ENDPOINT_GRADE_COMMENTS,
     ENDPOINT_GRADE_TYPES,
     ENDPOINT_GRADES,
+    ENDPOINT_GRADING_SYSTEM,
     ENDPOINT_HOMEWORK_ASSIGNMENT_CATEGORIES,
     ENDPOINT_HOMEWORK_ASSIGNMENTS,
     ENDPOINT_HOMEWORK_CATEGORIES,
@@ -53,6 +55,7 @@ from .const import (
     ENDPOINT_NOTE_CATEGORIES,
     ENDPOINT_NOTES,
     ENDPOINT_PARENT_TEACHER_CONFERENCES,
+    ENDPOINT_PARTIAL_GRADES,
     ENDPOINT_POINT_GRADE_CATEGORIES,
     ENDPOINT_POINT_GRADES,
     ENDPOINT_REALIZATIONS,
@@ -349,6 +352,8 @@ class LibrusApiClient:
         *,
         params: dict[str, str] | None = None,
         array_envelope_key: str | None = None,
+        method: str = "GET",
+        json_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Same as `_async_request` but for a fully-formed URL, not just an
         endpoint under the Synergia gateway - needed for the separate
@@ -365,8 +370,11 @@ class LibrusApiClient:
         someday fails loudly instead of being mis-keyed under "data".
         """
         try:
-            async with self._session.get(
-                url, headers={"User-Agent": USER_AGENT}, params=params
+            # get/post rather than request(): the test helpers mock those two.
+            send = self._session.post if method == "POST" else self._session.get
+            extra: dict[str, Any] = {"json": json_body} if json_body is not None else {}
+            async with send(
+                url, headers={"User-Agent": USER_AGENT}, params=params, **extra
             ) as response:
                 if response.status == 503:
                     raise LibrusServerMaintenanceError(
@@ -652,6 +660,24 @@ class LibrusApiClient:
         """Descriptive grades, for schools with Units'
         GradesSettings.DescriptiveGradesEnabled."""
         return await self._async_request(ENDPOINT_DESCRIPTIVE_GRADES)
+
+    async def async_get_grading_system(self) -> dict[str, Any]:
+        """The school's grade scale settings. See `parse_grading_system`."""
+        return await self._async_request(ENDPOINT_GRADING_SYSTEM)
+
+    async def async_get_auth_subjects(self) -> dict[str, Any]:
+        """Subjects keyed by LID. See `parse_auth_subjects`."""
+        return await self._async_request(ENDPOINT_AUTH_SUBJECTS)
+
+    async def async_get_partial_grades(self, student_identifier: str) -> dict[str, Any]:
+        """The new descriptive grading for one child (a POST with body `{}`,
+        as Synergia's own page does). See `parse_partial_grades`; the
+        child's LID comes from `extract_student_identifier`."""
+        return await self._async_request_url(
+            f"{DATA_BASE_URL}/{ENDPOINT_PARTIAL_GRADES.format(student=student_identifier)}",
+            method="POST",
+            json_body={},
+        )
 
     async def async_get_descriptive_grade_skills(self) -> dict[str, Any]:
         """Names of descriptive-grade skills (the whole school's, ~330 KB).

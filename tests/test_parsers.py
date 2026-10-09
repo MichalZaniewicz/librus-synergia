@@ -853,3 +853,111 @@ def test_parse_descriptive_grades_reads_map_skill_and_teacher() -> None:
     assert (second.value, second.skill, second.comment_ids) == ("5", None, [])
     # `Grade` alone is the range on the scale, not the grade: no value.
     assert third.value == ""
+
+
+def test_grade_value_follows_the_schools_grading_system() -> None:
+    grading = parsers.parse_grading_system(
+        {"countZero": True, "plusValue": 0.25, "minusValue": 0.5}
+    )
+    assert (grading.plus_value, grading.minus_value, grading.count_zero) == (0.25, 0.5, True)
+    assert parse_grade_value("4+", grading) == 4.25
+    assert parse_grade_value("4-", grading) == 3.5
+    assert parse_grade_value("0", grading) == 0.0
+    # Without settings: +0.5 / -0.25 and no zero (the tested school).
+    assert parse_grade_value("4+") == 4.5
+    assert parse_grade_value("4-") == 3.75
+    assert parse_grade_value("0") is None
+    # Odd values keep the defaults.
+    assert parsers.parse_grading_system({"plusValue": "x"}).plus_value == 0.5
+
+
+def test_student_identifier_and_auth_subjects() -> None:
+    assert (
+        parsers.extract_student_identifier({"IdentifierOfStudentAssignedWithUser": "LID-1"})
+        == "LID-1"
+    )
+    assert (
+        parsers.extract_student_identifier(
+            {"UserInfo": {"IdentifierOfStudentAssignedWithUser": "LID-2"}}
+        )
+        == "LID-2"
+    )
+    assert parsers.extract_student_identifier({}) is None
+    subjects = parsers.parse_auth_subjects(
+        {
+            "data": [
+                {"identifier": "LID-S-9", "numericIdentifier": 9, "name": "Muzyka"},
+                {"identifier": None},
+            ]
+        }
+    )
+    assert subjects == {"LID-S-9": 9}
+
+
+def test_parse_partial_grades() -> None:
+    """The new descriptive grading - item fields from another client's code
+    (no real grade seen yet), made-up values."""
+    grades = parsers.parse_partial_grades(
+        {
+            "data": [
+                {
+                    "gradeId": 501,
+                    "teacherId": "LID-T-1",
+                    "area": {"id": 3, "name": "Muzyka i ruch", "color": "#fff"},
+                    "subjectId": "LID-S-9",
+                    "scaleValue": {"id": 2, "value": "W"},
+                    "content": "Śpiewa czysto",
+                    "comments": ["Brawo"],
+                    "implementedRequirements": [{"id": 1, "name": "Śpiewa piosenki"}],
+                    "date": "2026-10-01",
+                    "semester": 1,
+                    "addDate": "2026-10-01 10:00:00",
+                },
+                {"noGradeId": True},
+            ],
+            "pagination": {"limit": 50, "page": 1, "total": 1},
+        },
+        {"LID-S-9": 9},
+    )
+    (grade,) = grades
+    assert (grade.id, grade.source, grade.subject_id, grade.value) == ("p501", "partial", 9, "W")
+    assert (grade.skill, grade.teacher_lid, grade.date, grade.semester) == (
+        "Muzyka i ruch",
+        "LID-T-1",
+        "2026-10-01",
+        1,
+    )
+    assert grade.comments == ["Śpiewa czysto", "Brawo"]
+    assert grade.requirements == ["Śpiewa piosenki"]
+
+
+def test_parse_message_receivers() -> None:
+    message = parsers.parse_message(
+        {
+            "data": {
+                "topic": "Pytanie",
+                "Message": "",
+                "receivers": [
+                    {
+                        "firstName": "Anna",
+                        "lastName": "Nowak",
+                        "group": "nauczyciel",
+                        "readed": "2026-10-02 08:00:00",
+                    },
+                    {
+                        "firstName": "Jan",
+                        "lastName": "Kowalski",
+                        "group": "nauczyciel",
+                        "readed": "",
+                    },
+                ],
+            }
+        },
+        "outbox",
+        "7",
+    )
+    assert message is not None
+    assert [(r.name, r.read_date) for r in message.receivers] == [
+        ("Anna Nowak", "2026-10-02 08:00:00"),
+        ("Jan Kowalski", None),
+    ]

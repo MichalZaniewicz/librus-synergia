@@ -25,6 +25,7 @@ from .models import (
     FullMessageData,
     GradeCategoryData,
     GradeData,
+    GradingSystemData,
     HomeworkAssignmentData,
     HomeworkEventData,
     JustificationData,
@@ -33,6 +34,7 @@ from .models import (
     LuckyNumberData,
     MeData,
     MessageData,
+    MessageReceiverData,
     NoteData,
     OriginalLessonData,
     ParentTeacherConferenceData,
@@ -50,8 +52,13 @@ from .models import (
 LID_USER_PREFIX = "LID-AUTH-USER-"
 
 
-def parse_grade_value(value: str) -> float | None:
+def parse_grade_value(value: str, grading: GradingSystemData | None = None) -> float | None:
     """Convert a Librus grade string ("5+", "4-", "3", "bz"...) to a number.
+
+    `grading` is the school's scale (`parse_grading_system`): what "+" adds,
+    what "-" takes away and whether "0" counts. Without it, +0.5 / -0.25 and
+    no 0 - the values the tested school uses (CONFIRMED live 2026-10-09 via
+    `GradingSystem`).
 
     The "+"/"-" modifiers (+0.5 / -0.25) follow the convention used by most
     third-party Polish gradebook average calculators. CONFIRMED live
@@ -71,15 +78,16 @@ def parse_grade_value(value: str) -> float | None:
     half is CONFIRMED the same way (2026-09-28): a subject with a real `6`
     and `4-` shows 4.88 in the Librus app, i.e. (6 + 3.75) / 2.
     """
+    grading = grading or GradingSystemData()
     value = value.strip()
     if not value:
         return None
     modifier = 0.0
     if value.endswith("+"):
-        modifier = 0.5
+        modifier = grading.plus_value
         value = value[:-1]
     elif value.endswith("-"):
-        modifier = -0.25
+        modifier = -grading.minus_value
         value = value[:-1]
     try:
         number = float(value.replace(",", ".")) + modifier
@@ -88,9 +96,119 @@ def parse_grade_value(value: str) -> float | None:
     # Only the 1-6 scale is a grade here. A school grading in points or
     # percent (e.g. "85") would otherwise drag every average far off -
     # those belong in `PointGrades` (see `parse_point_grades`).
+    if number == 0 and grading.count_zero and not modifier:
+        return 0.0
     if not 0 < number <= 6.5:
         return None
     return number
+
+
+def parse_grading_system(payload: dict[str, Any]) -> GradingSystemData:
+    """`GradingSystem` -> the school's scale settings. CONFIRMED live
+    2026-10-09: `{"countZero": false, "plusValue": 0.5, "minusValue": 0.25}`.
+    A missing or odd value keeps the default."""
+    defaults = GradingSystemData()
+
+    def number(key: str, default: float) -> float:
+        value = payload.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return default
+        return float(value)
+
+    count_zero = payload.get("countZero")
+    return GradingSystemData(
+        plus_value=number("plusValue", defaults.plus_value),
+        minus_value=abs(number("minusValue", defaults.minus_value)),
+        count_zero=count_zero if isinstance(count_zero, bool) else defaults.count_zero,
+    )
+
+
+def parse_auth_subjects(payload: dict[str, Any]) -> dict[str, int]:
+    """`Auth/Subjects` -> subject LID (`identifier`) to the ordinary subject
+    id (`numericIdentifier`). CONFIRMED live 2026-10-09."""
+    result: dict[str, int] = {}
+    for item in payload.get("data") or []:
+        if not isinstance(item, dict):
+            continue
+        lid, numeric = item.get("identifier"), as_int(item.get("numericIdentifier"))
+        if isinstance(lid, str) and numeric is not None:
+            result[lid] = numeric
+    return result
+
+
+def extract_student_identifier(user_info: dict[str, Any]) -> str | None:
+    """The child's LID from `Auth/UserInfo/<TokenInfo.UserIdentifier>`
+    (`IdentifierOfStudentAssignedWithUser`, CONFIRMED live 2026-10-09 on a
+    parent account)."""
+    nested = user_info.get("UserInfo")
+    info: dict[str, Any] = nested if isinstance(nested, dict) else user_info
+    value = info.get("IdentifierOfStudentAssignedWithUser")
+    return value if isinstance(value, str) and value else None
+
+
+def parse_partial_grades(
+    payload: dict[str, Any], subjects_by_lid: dict[str, int] | None = None
+) -> list[DescriptiveGradeData]:
+    """The new descriptive grading (`POST Auth/DescriptiveGradingSystem/
+    PartialGrades/Student/<child LID>`), as `DescriptiveGradeData` with
+    `source="partial"`.
+
+    The envelope `{"data": [...], "pagination": {...}}` is CONFIRMED live
+    (2026-10-09, empty on a grade 7 account). The item fields are only
+    known from another client's code (not seen on a real grade yet):
+    `gradeId`, `teacherId` / `addedBy` (LIDs), `area` {`name`} (shown as the
+    skill), `subjectId` (a LID, mapped through `subjects_by_lid` from
+    `parse_auth_subjects`), `scaleValue` {`value`}, `content`, `comments`,
+    `implementedRequirements` [{`name`}], `date`, `semester`, `addDate`.
+    Parsed defensively: a missing field stays empty."""
+    subjects_by_lid = subjects_by_lid or {}
+    result: list[DescriptiveGradeData] = []
+    for item in payload.get("data") or []:
+        if not isinstance(item, dict) or item.get("gradeId") is None:
+            continue
+        raw_area, raw_scale = item.get("area"), item.get("scaleValue")
+        area: dict[str, Any] = raw_area if isinstance(raw_area, dict) else {}
+        scale: dict[str, Any] = raw_scale if isinstance(raw_scale, dict) else {}
+        raw_comments = item.get("comments")
+        if isinstance(raw_comments, str):
+            raw_comments = [raw_comments]
+        comments = [
+            text
+            for text in (
+                [item.get("content")]
+                + [
+                    c.get("content") or c.get("text") if isinstance(c, dict) else c
+                    for c in raw_comments or []
+                ]
+            )
+            if isinstance(text, str) and text.strip()
+        ]
+        subject_lid = item.get("subjectId")
+        teacher = item.get("teacherId") or item.get("addedBy")
+        result.append(
+            DescriptiveGradeData(
+                id=f"p{item['gradeId']}",
+                subject_id=subjects_by_lid.get(subject_lid)
+                if isinstance(subject_lid, str)
+                else as_int(subject_lid),
+                value=str(scale.get("value") or ""),
+                skill_id=None,
+                category_id=None,
+                add_date=item.get("addDate"),
+                skill=area.get("name") if isinstance(area.get("name"), str) else None,
+                date=item.get("date"),
+                semester=as_int(item.get("semester")),
+                comments=[c.strip() for c in comments],
+                source="partial",
+                teacher_lid=teacher if isinstance(teacher, str) else None,
+                requirements=[
+                    r["name"]
+                    for r in item.get("implementedRequirements") or []
+                    if isinstance(r, dict) and isinstance(r.get("name"), str)
+                ],
+            )
+        )
+    return result
 
 
 def parse_me(payload: dict[str, Any]) -> MeData:
@@ -1561,7 +1679,30 @@ def parse_message(payload: dict[str, Any], mailbox: str, message_id: str) -> Ful
         send_date=data.get("sendDate"),
         read_date=data.get("readDate"),
         attachments=attachments,
+        receivers=parse_message_receivers(data),
     )
+
+
+def parse_message_receivers(data: dict[str, Any]) -> list[MessageReceiverData]:
+    """`receivers` of a sent message (`outbox/messages/<id>` -> `data`),
+    CONFIRMED live 2026-10-09: `firstName`, `lastName`, `group` and
+    `readed` - when that recipient read it (empty / missing until then)."""
+    result: list[MessageReceiverData] = []
+    for item in data.get("receivers") or []:
+        if not isinstance(item, dict):
+            continue
+        name = " ".join(
+            p for p in (item.get("firstName"), item.get("lastName")) if isinstance(p, str) and p
+        )
+        read = item.get("readed")
+        result.append(
+            MessageReceiverData(
+                name=name,
+                group=item.get("group") if isinstance(item.get("group"), str) else None,
+                read_date=read if isinstance(read, str) and read else None,
+            )
+        )
+    return result
 
 
 _INFO_ROW_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S | re.I)

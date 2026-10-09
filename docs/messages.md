@@ -33,7 +33,7 @@ Base: `https://wiadomosci.librus.pl/api`
 | `GET /receivers/student-subjects` | ✅ `[{"teacherIdentifier", "subject"}]` - the student's teachers with their subjects. |
 | `GET /inbox/messages/senders?page=1&limit=50` | ✅ `{"data": [{"senderId", "senderFirstName", "senderLastName"}]}` - everyone who wrote to the account (a group sender comes with the whole name in `senderFirstName`). |
 | `GET /outbox/messages/receivers?page=1&limit=50` | ✅ `{"data": [{"receiverId", "receiverFirstName", "receiverLastName"}]}` |
-| `GET /outbox/messages/<id>` | ✅ A sent message in full: the same shape as an inbox message plus **`receivers`** - one entry per recipient with `firstName`, `lastName`, `group` and **`readed`** (when they read it), and `receiversCount` / `readedCount`. No side effect. |
+| `GET /outbox/messages/<id>` | ✅ A sent message in full: the same shape as an inbox message plus **`receivers`** - one entry per recipient with `firstName`, `lastName`, `group` and **`readed`** (when they read it), and `receiversCount` / `readedCount`. No side effect. `parse_message` fills `FullMessageData.receivers` (`name`, `group`, `read_date`). |
 | `GET /archive/outbox/messages` | ✅ Archived sent messages, the outbox item shape plus `total` and `archivingInProgress`. |
 | `GET /receivers/types?includeClass=true` | ✅ `{"data": {"defaultGroup", "list": [{"id", "name"}]}}` - the recipient groups a parent can write to (15 on the tested school). |
 
