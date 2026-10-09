@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.12
+
+### Fixed
+- **A homework file download that the sandbox rejects is retried with a
+  fresh key.** Found live: now and then Librus's sandbox answers a download
+  key with `download_failed` (or something that isn't JSON), while a new
+  key for the same file works a moment later. `download_homework_attachment`
+  now tries up to three keys before giving up.
+
 ## 0.3.11
 
 ### Fixed

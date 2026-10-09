@@ -404,6 +404,8 @@ async def test_download_homework_attachment_single_use_key(monkeypatch) -> None:
 
 
 async def test_download_homework_attachment_download_failed(monkeypatch) -> None:
+    """`download_failed` on every key: three fresh keys, then the error."""
+    monkeypatch.setattr("librus_synergia.client.asyncio.sleep", _no_sleep)
     location = f"{SANDBOX_URL}?action=CSTryToDownload&singleUseKey=w9_123_abc"
     async with aiohttp.ClientSession() as session:
         with MockedSession(session) as mocked:
@@ -416,6 +418,32 @@ async def test_download_homework_attachment_download_failed(monkeypatch) -> None
 
             with pytest.raises(LibrusUnexpectedResponseError, match="download_failed"):
                 await client.async_download_homework_attachment("81")
+
+            assert mocked.get_calls[f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/81"] == 3
+
+
+async def test_download_homework_attachment_retries_a_failed_key(monkeypatch) -> None:
+    """Seen live: one key fails, a fresh key for the same file works."""
+    monkeypatch.setattr("librus_synergia.client.asyncio.sleep", _no_sleep)
+    location = f"{SANDBOX_URL}?action=CSTryToDownload&singleUseKey=w9_123_abc"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/83", status=302, headers={"Location": location}
+            )
+            mocked.get(location, text_data="<html>loading</html>")
+            mocked.post_sequence(
+                SANDBOX_URL,
+                {"json_data": {"status": "download_failed"}},
+                {"json_data": {"status": "ready"}},
+            )
+            mocked.get(SANDBOX_URL, body=b"%PDF", headers={"Content-Type": "application/pdf"})
+            client = LibrusApiClient(session, "1234567u")
+
+            file = await client.async_download_homework_attachment("83")
+
+            assert file.content == b"%PDF"
+            assert mocked.get_calls[f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/83"] == 2
 
 
 async def test_download_homework_attachment_login_redirect_is_session_expiry() -> None:

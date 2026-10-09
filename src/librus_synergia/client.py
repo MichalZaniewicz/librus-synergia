@@ -786,7 +786,32 @@ class LibrusApiClient:
         `homework/downloadFile/<id>` redirects to a sandbox.librus.pl link.
         CONFIRMED live 2026-10-09: a `CSTryToDownload&singleUseKey=...` link
         (see `_async_fetch_single_use_key_file`); a `GetFile` link, as for
-        message attachments, is handled too."""
+        message attachments, is handled too.
+
+        Found live (2026-10-09): the sandbox now and then answers a key with
+        `download_failed` (or not JSON), while a fresh key for the same file
+        works a moment later - so a failed key is retried with a new one, up
+        to `_SANDBOX_KEY_ROUNDS` times."""
+        fallback_name = f"homework-file-{attachment_id}"
+        for round_no in range(_SANDBOX_KEY_ROUNDS):
+            link = await self._async_homework_download_link(attachment_id)
+            key = _SINGLE_USE_KEY_RE.search(link)
+            if key is None:
+                return await self._async_fetch_sandbox_file(
+                    link, fallback_name, max_wait_attempts=max_wait_attempts
+                )
+            try:
+                return await self._async_fetch_single_use_key_file(
+                    link, key.group(1), fallback_name, max_wait_attempts=max_wait_attempts
+                )
+            except _SandboxKeyFailedError:
+                if round_no + 1 == _SANDBOX_KEY_ROUNDS:
+                    raise
+                await asyncio.sleep(2)
+        raise AssertionError("unreachable")
+
+    async def _async_homework_download_link(self, attachment_id: str) -> str:
+        """The sandbox link Synergia's `homework/downloadFile` redirects to."""
         url = f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/{attachment_id}"
         try:
             async with self._session.get(
@@ -815,15 +840,7 @@ class LibrusApiClient:
             raise LibrusSessionExpiredError(
                 f"Session rejected on {url} (redirected to {link}).", status_code=status
             )
-        fallback_name = f"homework-file-{attachment_id}"
-        key = _SINGLE_USE_KEY_RE.search(link)
-        if key is None:
-            return await self._async_fetch_sandbox_file(
-                link, fallback_name, max_wait_attempts=max_wait_attempts
-            )
-        return await self._async_fetch_single_use_key_file(
-            link, key.group(1), fallback_name, max_wait_attempts=max_wait_attempts
-        )
+        return link
 
     async def _async_fetch_sandbox_file(
         self, link: str, fallback_name: str, *, max_wait_attempts: int
@@ -895,9 +912,18 @@ class LibrusApiClient:
             raise LibrusUnexpectedResponseError(
                 f"{fallback_name} still wasn't ready after {max_wait_attempts} checks"
             )
-        raise LibrusUnexpectedResponseError(
+        raise _SandboxKeyFailedError(
             f"{fallback_name} couldn't be downloaded (sandbox status: {status})"
         )
+
+
+class _SandboxKeyFailedError(LibrusUnexpectedResponseError):
+    """The sandbox gave up on one download key (`download_failed`, or an
+    answer that isn't JSON); a new key may still work."""
+
+
+# Fresh download keys tried for one homework file.
+_SANDBOX_KEY_ROUNDS = 3
 
 
 def _sandbox_poll_delay(attempt: int) -> int:
