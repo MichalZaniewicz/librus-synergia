@@ -414,7 +414,7 @@ async def test_download_homework_attachment_download_failed(monkeypatch) -> None
             mocked.post(SANDBOX_URL, json_data={"status": "download_failed"})
             client = LibrusApiClient(session, "1234567u")
 
-            with pytest.raises(LibrusUnexpectedResponseError):
+            with pytest.raises(LibrusUnexpectedResponseError, match="download_failed"):
                 await client.async_download_homework_attachment("81")
 
 
@@ -462,3 +462,21 @@ async def test_non_json_error_page_keeps_status() -> None:
                 await client.async_get_messages(mailbox="alerts")
 
             assert err.value.status_code == 404
+
+
+async def test_download_homework_attachment_reports_a_timeout(monkeypatch) -> None:
+    monkeypatch.setattr("librus_synergia.client.asyncio.sleep", _no_sleep)
+    location = f"{SANDBOX_URL}?action=CSTryToDownload&singleUseKey=w9_123_abc"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/82", status=302, headers={"Location": location}
+            )
+            mocked.get(location, text_data="<html>loading</html>")
+            mocked.post(SANDBOX_URL, json_data={"status": "not_downloaded_yet"})
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusUnexpectedResponseError, match="still wasn't ready after 15"):
+                await client.async_download_homework_attachment("82")
+
+            assert mocked.post_calls[SANDBOX_URL] == 15

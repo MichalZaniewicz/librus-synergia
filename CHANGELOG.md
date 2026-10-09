@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.11
+
+### Fixed
+- **The first download of a homework file no longer gives up too early.**
+  Found live: the sandbox can take more than 30 seconds to prepare a file
+  the first time (later downloads are quick). `download_homework_attachment`
+  now waits up to about two minutes, like Librus's own download page.
+- A failed homework download says why: still not ready after all the
+  checks, the sandbox's own status (e.g. `download_failed`), or what
+  `CSDownload` answered.
+
 ## 0.3.10
 
 ### Fixed

@@ -778,7 +778,7 @@ class LibrusApiClient:
         )
 
     async def async_download_homework_attachment(
-        self, attachment_id: str, *, max_wait_attempts: int = 10
+        self, attachment_id: str, *, max_wait_attempts: int = 15
     ) -> AttachmentFileData:
         """Download one homework-assignment attachment (ids from
         `HomeworkAssignmentData.attachments`). Per szkolny-android's
@@ -856,6 +856,7 @@ class LibrusApiClient:
         until `status` is `ready` (`not_downloaded_yet` meanwhile,
         `download_failed` on failure), then GET `CSDownload`."""
         headers = {"User-Agent": USER_AGENT, "Referer": link}
+        status: str | None = None
         try:
             async with self._session.get(link, headers=headers) as response:
                 await response.read()
@@ -880,18 +881,33 @@ class LibrusApiClient:
                         content_type = response.headers.get("Content-Type", "")
                         if response.status == 200 and "text/html" not in content_type:
                             return _file_data(response, body, fallback_name)
-                    break
+                    raise LibrusUnexpectedResponseError(
+                        f"{fallback_name}: sandbox said ready, but CSDownload answered "
+                        f"HTTP {response.status} ({content_type or 'no type'})"
+                    )
                 if status != "not_downloaded_yet":
                     break
                 if attempt + 1 < max_wait_attempts:
-                    await asyncio.sleep(_SANDBOX_POLL_SECONDS)
+                    await asyncio.sleep(_sandbox_poll_delay(attempt))
         except aiohttp.ClientError as err:
             raise LibrusConnectionError(str(err)) from err
-        raise LibrusUnexpectedResponseError(f"{fallback_name} wasn't ready to download")
+        if status == "not_downloaded_yet":
+            raise LibrusUnexpectedResponseError(
+                f"{fallback_name} still wasn't ready after {max_wait_attempts} checks"
+            )
+        raise LibrusUnexpectedResponseError(
+            f"{fallback_name} couldn't be downloaded (sandbox status: {status})"
+        )
 
 
-# Librus's own page polls every 5 s at first, then every 10 s.
-_SANDBOX_POLL_SECONDS = 3
+def _sandbox_poll_delay(attempt: int) -> int:
+    """Seconds before the next `CSCheckKey`. Found live (2026-10-09): the
+    first download of a file can take longer than 30 s (later ones are
+    quick). Librus's own page waits 5 s, then 10 s, and only offers to give
+    up after 15 checks; this waits 3 s at first, then 10 s - about two
+    minutes in all with the default 15 checks."""
+    return 3 if attempt < 3 else 10
+
 
 _SINGLE_USE_KEY_RE = re.compile(r"singleUseKey=([0-9A-Za-z_\-]+)")
 
