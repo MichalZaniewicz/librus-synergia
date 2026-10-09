@@ -9,6 +9,7 @@ Every quirk handled below was confirmed against a real account - see
 from __future__ import annotations
 
 import base64
+import math
 import re
 from datetime import date, timedelta
 from html import unescape as html_unescape
@@ -58,7 +59,7 @@ def parse_grade_value(value: str, grading: GradingSystemData | None = None) -> f
     `grading` is the school's scale (`parse_grading_system`): what "+" adds,
     what "-" takes away and whether "0" counts. Without it, +0.5 / -0.25 and
     no 0 - the values the tested school uses (CONFIRMED live 2026-10-09 via
-    `GradingSystem`).
+    `GradingSystem`). A modifier on 0 ("0+", "0-") is not a grade (None).
 
     The "+"/"-" modifiers (+0.5 / -0.25) follow the convention used by most
     third-party Polish gradebook average calculators. CONFIRMED live
@@ -90,9 +91,14 @@ def parse_grade_value(value: str, grading: GradingSystemData | None = None) -> f
         modifier = -grading.minus_value
         value = value[:-1]
     try:
-        number = float(value.replace(",", ".")) + modifier
+        base = float(value.replace(",", "."))
     except ValueError:
         return None
+    # "0+" / "0-" aren't grades on any scale (and 0 - 0.25 would even be
+    # negative) - only a bare "0" can count, and only if the school says so.
+    if modifier and base == 0:
+        return None
+    number = base + modifier
     # Only the 1-6 scale is a grade here. A school grading in points or
     # percent (e.g. "85") would otherwise drag every average far off -
     # those belong in `PointGrades` (see `parse_point_grades`).
@@ -106,18 +112,27 @@ def parse_grade_value(value: str, grading: GradingSystemData | None = None) -> f
 def parse_grading_system(payload: dict[str, Any]) -> GradingSystemData:
     """`GradingSystem` -> the school's scale settings. CONFIRMED live
     2026-10-09: `{"countZero": false, "plusValue": 0.5, "minusValue": 0.25}`.
-    A missing or odd value keeps the default."""
+    A number given as a string ("0.5") is read too; a missing or odd value
+    keeps the default. Both modifiers are taken as sizes (`abs`), since "+"
+    always adds and "-" always takes away."""
     defaults = GradingSystemData()
 
     def number(key: str, default: float) -> float:
         value = payload.get(key)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, bool):
+            return default
+        if isinstance(value, str):
+            try:
+                value = float(value.strip().replace(",", "."))
+            except ValueError:
+                return default
+        if not isinstance(value, (int, float)) or not math.isfinite(value):
             return default
         return float(value)
 
     count_zero = payload.get("countZero")
     return GradingSystemData(
-        plus_value=number("plusValue", defaults.plus_value),
+        plus_value=abs(number("plusValue", defaults.plus_value)),
         minus_value=abs(number("minusValue", defaults.minus_value)),
         count_zero=count_zero if isinstance(count_zero, bool) else defaults.count_zero,
     )
@@ -170,28 +185,36 @@ def parse_partial_grades(
         area: dict[str, Any] = raw_area if isinstance(raw_area, dict) else {}
         scale: dict[str, Any] = raw_scale if isinstance(raw_scale, dict) else {}
         raw_comments = item.get("comments")
-        if isinstance(raw_comments, str):
+        # One comment may come on its own (a string or an object) instead of
+        # in a list; anything else (a number, ...) is ignored.
+        if isinstance(raw_comments, (str, dict)):
             raw_comments = [raw_comments]
+        elif not isinstance(raw_comments, list):
+            raw_comments = []
         comments = [
             text
             for text in (
                 [item.get("content")]
                 + [
                     c.get("content") or c.get("text") if isinstance(c, dict) else c
-                    for c in raw_comments or []
+                    for c in raw_comments
                 ]
             )
             if isinstance(text, str) and text.strip()
         ]
         subject_lid = item.get("subjectId")
+        # A LID maps through `Auth/Subjects`; a plain (or string) number is
+        # taken as the ordinary subject id.
+        subject_id = subjects_by_lid.get(subject_lid) if isinstance(subject_lid, str) else None
+        if subject_id is None:
+            subject_id = as_int(subject_lid)
         teacher = item.get("teacherId") or item.get("addedBy")
+        scale_value = scale.get("value")
         result.append(
             DescriptiveGradeData(
                 id=f"p{item['gradeId']}",
-                subject_id=subjects_by_lid.get(subject_lid)
-                if isinstance(subject_lid, str)
-                else as_int(subject_lid),
-                value=str(scale.get("value") or ""),
+                subject_id=subject_id,
+                value="" if scale_value is None else str(scale_value),
                 skill_id=None,
                 category_id=None,
                 add_date=item.get("addDate"),

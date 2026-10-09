@@ -83,4 +83,6 @@ without opening the message:
 
 The attachment ids still come from the single-message response, so getting
 them for an **unread** message would mark it read. `Librus.download_attachment`
-does steps 1-3.
+does steps 1-3. It only follows a `downloadLink` on `sandbox.librus.pl`
+(anything else is `LibrusUnexpectedResponseError`), and gives up with
+`LibrusConnectionError` after 150 s (`DOWNLOAD_TIMEOUT_SECONDS`).

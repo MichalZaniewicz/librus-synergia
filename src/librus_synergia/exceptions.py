@@ -58,7 +58,10 @@ class LibrusSessionExpiredError(LibrusAuthError):
     opublikowany" in Synergia's own web UI), a real and permanent-until-the-
     school-acts condition that a fresh re-login can never fix. Kept
     separate from a genuine 401 (session actually dead) so callers can
-    tell the two apart instead of forcing a pointless relogin-and-retry."""
+    tell the two apart instead of forcing a pointless relogin-and-retry.
+
+    A 401 whose body says "Insufficient scopes" is NOT this error - see
+    `LibrusUnexpectedResponseError`."""
 
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
@@ -84,7 +87,9 @@ class LibrusUnexpectedResponseError(LibrusError):
     """The response didn't have the shape expected (missing/renamed JSON
     keys, non-JSON body, wrong HTTP status, redirect chain that never
     terminated). `status_code` is set when the cause was an HTTP error
-    status (e.g. 404 for a mailbox this account doesn't have)."""
+    status (e.g. 404 for a mailbox this account doesn't have, or 401 with
+    an "Insufficient scopes" body for an endpoint this account may not use
+    at all - logging in again doesn't change that)."""
 
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)

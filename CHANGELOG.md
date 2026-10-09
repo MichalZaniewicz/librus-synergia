@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **"Insufficient scopes" is no longer an expired session.** A 401 whose body
+  says `Insufficient scopes` (endpoints the account may not use, e.g.
+  `SchoolInfo`, `Duties`) now raises `LibrusUnexpectedResponseError`
+  (`status_code=401`), so callers don't log in again on every poll. A plain
+  401 is still `LibrusSessionExpiredError`.
+- **A download page without a redirect is an expired session only when it is
+  the logged-out page** ("Brak dostępu" or the login form). Any other page is
+  `LibrusUnexpectedResponseError`.
+- **Downloads only follow `sandbox.librus.pl`**, compared by host (a
+  look-alike host is no longer accepted), also for a message attachment's
+  `downloadLink`.
+- **A `CSCheckKey` answer that is JSON but not an object** (a list, a string)
+  counts as a failed key instead of crashing.
+- **`parse_partial_grades`**: one comment given on its own (not in a list) is
+  read, other odd comment values are ignored, a numeric `subjectId` is used as
+  the subject id, and a scale value of `0` stays `"0"`.
+- **`parse_grade_value`**: `"0+"` and `"0-"` are not grades (None).
+- **`parse_grading_system`**: numbers sent as strings (`"0.5"`) are read, and
+  `plusValue` is taken as a size like `minusValue`.
+- **`Librus.student_identifier()`** no longer remembers a failed lookup as
+  "no child LID" (only a real answer is kept), and concurrent calls ask
+  Librus once.
+
+### Changed
+- **Downloads give up after 150 s** (`DOWNLOAD_TIMEOUT_SECONDS`) with
+  `LibrusConnectionError`. The worst case used to be about six minutes.
+- **`async_download_school_file` only accepts a path or URL on
+  `https://synergia.librus.pl`**; anything else raises `ValueError`, so the
+  session cookies never go to another host.
+- **`Librus.grading_system()` is read once per instance**, and
+  **`Librus.partial_grades()` remembers** a 403/404/405 (or "Insufficient
+  scopes") as "module not available" and stops asking.
+- `LibrusApiClient._async_request_url` refuses an HTTP method other than GET
+  or POST (`ValueError`) instead of silently sending a GET.
+
 ## 0.3.15
 
 ### Added

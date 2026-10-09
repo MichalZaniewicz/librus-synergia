@@ -98,8 +98,14 @@ class Librus:
         # once per instance.
         self._kindergarten_lock = asyncio.Lock()
         self._kindergarten_checked = False
+        # The child's LID for the new descriptive grading (see
+        # `student_identifier`), and whether that module answers at all.
+        self._student_identifier_lock = asyncio.Lock()
         self._student_identifier: str | None = None
         self._student_identifier_checked = False
+        self._partial_grades_unavailable = False
+        # A static school setting - read once per instance.
+        self._grading_system: GradingSystemData | None = None
         self._kindergarten_lid: str | None = None
         self._kindergarten_group_id: str | None = None
 
@@ -179,7 +185,9 @@ class Librus:
             except LibrusUnexpectedResponseError as err:
                 # A 404 means "no such mailbox for this account" (confirmed
                 # live for substitutions/alerts), not a dead session.
-                if err.status_code == 404 or attempt:
+                # A 401 here is "Insufficient scopes" (see the client) - a
+                # fresh login can't change that either.
+                if err.status_code in (401, 404) or attempt:
                     raise
                 self._messages_available = None
                 await self.login(force=True)
@@ -272,13 +280,18 @@ class Librus:
     # Kindergarten (przedszkole) accounts
     # ------------------------------------------------------------------
 
-    async def _probe(self, fetch: Callable[[], Awaitable[Any]]) -> dict[str, Any]:
-        """One best-effort request: any Librus error becomes `{}`."""
+    async def _try(self, fetch: Callable[[], Awaitable[Any]]) -> dict[str, Any] | None:
+        """One best-effort request: None when it failed (any Librus error,
+        or an answer that isn't a JSON object)."""
         try:
             result = await self._call(fetch)
         except LibrusError:
-            return {}
-        return result if isinstance(result, dict) else {}
+            return None
+        return result if isinstance(result, dict) else None
+
+    async def _probe(self, fetch: Callable[[], Awaitable[Any]]) -> dict[str, Any]:
+        """One best-effort request: any Librus error becomes `{}`."""
+        return await self._try(fetch) or {}
 
     async def kindergartener_id(self) -> str | None:
         """The child's `LID-AUTH-USER-...` identifier on a kindergarten
@@ -399,28 +412,51 @@ class Librus:
 
     async def student_identifier(self) -> str | None:
         """The child's LID (`Auth/UserInfo/<token user>` ->
-        `IdentifierOfStudentAssignedWithUser`), looked up once; None when
-        Librus doesn't give one."""
-        if not self._student_identifier_checked:
-            self._student_identifier_checked = True
-            token_lid = parsers.extract_token_user_identifier(
-                await self._probe(self.client.async_get_token_info)
-            )
+        `IdentifierOfStudentAssignedWithUser`); None when Librus doesn't
+        give one. The answer is kept for this instance once Librus has
+        actually answered both lookups; a failed lookup (network, 5xx, ...)
+        is tried again on the next call."""
+        async with self._student_identifier_lock:
+            if self._student_identifier_checked:
+                return self._student_identifier
+            token_info = await self._try(self.client.async_get_token_info)
+            if token_info is None:
+                return None
+            token_lid = parsers.extract_token_user_identifier(token_info)
             if token_lid:
-                self._student_identifier = parsers.extract_student_identifier(
-                    await self._probe(lambda: self.client.async_get_user_info(token_lid))
-                )
-        return self._student_identifier
+                user_info = await self._try(lambda: self.client.async_get_user_info(token_lid))
+                if user_info is None:
+                    return None
+                self._student_identifier = parsers.extract_student_identifier(user_info)
+            self._student_identifier_checked = True
+            return self._student_identifier
 
     async def partial_grades(self) -> list[DescriptiveGradeData]:
         """Grades from the new descriptive grading (grade 1 at some schools
         from 2026), as `DescriptiveGradeData` with `source="partial"` -
         see `parsers.parse_partial_grades`. Empty when Librus has none or
-        no child LID is known."""
+        no child LID is known. When the module isn't available to this
+        account (HTTP 401 "Insufficient scopes", 403, 404 or 405), that is
+        remembered and this instance doesn't ask again."""
+        if self._partial_grades_unavailable:
+            return []
         student = await self.student_identifier()
         if not student:
             return []
-        payload = await self._call(lambda: self.client.async_get_partial_grades(student))
+        try:
+            payload = await self._call(lambda: self.client.async_get_partial_grades(student))
+        except (LibrusSessionExpiredError, LibrusUnexpectedResponseError) as err:
+            # `_call` already retried a real 401 once; a 403 or an
+            # "Insufficient scopes" 401 means the module isn't there.
+            unavailable = (
+                err.status_code == 403
+                if isinstance(err, LibrusSessionExpiredError)
+                else err.status_code in (401, 403, 404, 405)
+            )
+            if not unavailable:
+                raise
+            self._partial_grades_unavailable = True
+            return []
         if not payload.get("data"):
             return []
         subjects = parsers.parse_auth_subjects(
@@ -430,8 +466,13 @@ class Librus:
 
     async def grading_system(self) -> GradingSystemData:
         """The school's grade scale settings ("+" / "-" values, whether 0
-        counts). Pass it to `parsers.parse_grade_value`."""
-        return parsers.parse_grading_system(await self._call(self.client.async_get_grading_system))
+        counts). Pass it to `parsers.parse_grade_value`. Read once per
+        instance (a failed read is tried again next time)."""
+        if self._grading_system is None:
+            self._grading_system = parsers.parse_grading_system(
+                await self._call(self.client.async_get_grading_system)
+            )
+        return self._grading_system
 
     async def point_grades(self) -> list[PointGradeData]:
         """Point grades (schools grading in points or percent), with each

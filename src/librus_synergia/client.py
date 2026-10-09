@@ -26,6 +26,7 @@ from .const import (
     API_OAUTH_AUTHORIZATION_WITH_SCOPE_URL,
     ASSUMED_SESSION_LIFETIME_SECONDS,
     DATA_BASE_URL,
+    DOWNLOAD_TIMEOUT_SECONDS,
     ENDPOINT_ATTENDANCE_TYPES,
     ENDPOINT_ATTENDANCES,
     ENDPOINT_AUTH_SUBJECTS,
@@ -72,6 +73,7 @@ from .const import (
     ENDPOINT_TIMETABLES,
     ENDPOINT_UNITS,
     ENDPOINT_VIRTUAL_CLASSES,
+    INSUFFICIENT_SCOPES_MARKER,
     KINDERGARTENS_BASE_URL,
     LOGIN_HEADERS,
     MAX_OAUTH_REDIRECTS,
@@ -80,11 +82,13 @@ from .const import (
     MESSAGES_BOOTSTRAP_URL,
     OAUTH_TOKEN_COOKIE,
     PERSISTED_COOKIE_NAMES,
+    SANDBOX_DOMAIN,
     SANDBOX_URL,
     SESSION_EXPIRY_SAFETY_MARGIN_SECONDS,
     SESSION_REFRESH_AFTER_SECONDS,
     SYNERGIA_DOMAIN,
     SYNERGIA_HOMEWORK_ATTACHMENT_URL,
+    SYNERGIA_LOGGED_OUT_MARKERS,
     SYNERGIA_PORTAL_LOGIN_URL,
     SYNERGIA_REFRESH_TOKEN_URL,
     SYNERGIA_STUDENT_INFO_URL,
@@ -369,6 +373,8 @@ class LibrusApiClient:
         at) so a *different* endpoint that unexpectedly returns a list
         someday fails loudly instead of being mis-keyed under "data".
         """
+        if method not in ("GET", "POST"):
+            raise ValueError(f"Unsupported HTTP method {method!r} (only GET and POST)")
         try:
             # get/post rather than request(): the test helpers mock those two.
             send = self._session.post if method == "POST" else self._session.get
@@ -403,6 +409,21 @@ class LibrusApiClient:
                     # genuine 401 apart from a 403 that might mean something
                     # else entirely for a specific endpoint (e.g. Timetables'
                     # "not published yet", not an auth problem at all).
+                    #
+                    # Except a 401 whose body says "Insufficient scopes":
+                    # that's an endpoint this account may never use
+                    # (`SchoolInfo`, `Duties`, ...), not a dead session - a
+                    # session error would make callers log in again on every
+                    # poll for nothing.
+                    if (
+                        response.status == 401
+                        and INSUFFICIENT_SCOPES_MARKER in (await _body_text(response)).lower()
+                    ):
+                        raise LibrusUnexpectedResponseError(
+                            f"Not allowed for this account on {url} "
+                            "(HTTP 401 Insufficient scopes).",
+                            status_code=401,
+                        )
                     raise LibrusSessionExpiredError(
                         f"Session rejected on {url} (HTTP {response.status}).",
                         status_code=response.status,
@@ -800,20 +821,29 @@ class LibrusApiClient:
         CONFIRMED live 2026-10-07: `attachments/<id>/messages/<msg>` gives a
         `sandbox.librus.pl/GetFile/...` link; the link itself is an HTML
         waiting page and `<link>/get` the file. The attachment ids come from
-        `async_get_message` (which marks an unread message read)."""
-        payload = await self._async_request_url(
-            f"{MESSAGES_BASE_URL}/attachments/{attachment_id}/messages/{message_id}"
-        )
-        link = (
-            (payload.get("data") or {}).get("downloadLink")
-            if isinstance(payload.get("data"), dict)
-            else None
-        )
-        if not link:
-            raise LibrusUnexpectedResponseError(f"No download link for attachment {attachment_id}")
-        return await self._async_fetch_sandbox_file(
-            link, f"attachment-{attachment_id}", max_wait_attempts=max_wait_attempts
-        )
+        `async_get_message` (which marks an unread message read). Gives up
+        with `LibrusConnectionError` after `DOWNLOAD_TIMEOUT_SECONDS`."""
+        name = f"attachment-{attachment_id}"
+
+        async def download() -> AttachmentFileData:
+            payload = await self._async_request_url(
+                f"{MESSAGES_BASE_URL}/attachments/{attachment_id}/messages/{message_id}"
+            )
+            data = payload.get("data")
+            link = data.get("downloadLink") if isinstance(data, dict) else None
+            if not isinstance(link, str) or not link:
+                raise LibrusUnexpectedResponseError(
+                    f"No download link for attachment {attachment_id}"
+                )
+            if URL(link).host != SANDBOX_DOMAIN:
+                raise LibrusUnexpectedResponseError(
+                    f"Attachment {attachment_id} links outside the sandbox: {link}"
+                )
+            return await self._async_fetch_sandbox_file(
+                link, name, max_wait_attempts=max_wait_attempts
+            )
+
+        return await _with_download_deadline(download(), name)
 
     async def async_download_homework_attachment(
         self, attachment_id: str, *, max_wait_attempts: int = 15
@@ -829,11 +859,16 @@ class LibrusApiClient:
         Found live (2026-10-09): the sandbox now and then answers a key with
         `download_failed` (or not JSON), while a fresh key for the same file
         works a moment later - so a failed key is retried with a new one, up
-        to `_SANDBOX_KEY_ROUNDS` times."""
-        return await self._async_download_via_synergia(
-            f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/{attachment_id}",
-            f"homework-file-{attachment_id}",
-            max_wait_attempts=max_wait_attempts,
+        to `_SANDBOX_KEY_ROUNDS` times. The whole download gives up with
+        `LibrusConnectionError` after `DOWNLOAD_TIMEOUT_SECONDS`."""
+        name = f"homework-file-{attachment_id}"
+        return await _with_download_deadline(
+            self._async_download_via_synergia(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/{attachment_id}",
+                name,
+                max_wait_attempts=max_wait_attempts,
+            ),
+            name,
         )
 
     async def async_download_school_file(
@@ -843,16 +878,20 @@ class LibrusApiClient:
         e.g. `/pliki_szkoly/pobierz/<id>`). CONFIRMED live 2026-10-09: the
         page redirects to a `sandbox.librus.pl/GetFile/...` link, like a
         message attachment. Needs the Synergia web session, so the link
-        alone doesn't work in a browser that isn't logged in."""
-        url = (
-            download_path
-            if download_path.startswith("http")
-            else f"https://{SYNERGIA_DOMAIN}{download_path}"
-        )
-        return await self._async_download_via_synergia(
-            url,
-            f"school-file-{download_path.rstrip('/').rsplit('/', 1)[-1]}",
-            max_wait_attempts=max_wait_attempts,
+        alone doesn't work in a browser that isn't logged in.
+
+        `download_path` must resolve to an `https://synergia.librus.pl/`
+        URL (a path, or a full URL on that host) - anything else raises
+        `ValueError`, so the session cookies never go to another host. Gives
+        up with `LibrusConnectionError` after `DOWNLOAD_TIMEOUT_SECONDS`."""
+        url = urljoin(f"https://{SYNERGIA_DOMAIN}/", download_path)
+        parsed = URL(url)
+        if parsed.scheme != "https" or parsed.host != SYNERGIA_DOMAIN:
+            raise ValueError(f"Not a Synergia download path: {download_path!r}")
+        name = f"school-file-{download_path.rstrip('/').rsplit('/', 1)[-1]}"
+        return await _with_download_deadline(
+            self._async_download_via_synergia(url, name, max_wait_attempts=max_wait_attempts),
+            name,
         )
 
     async def _async_download_via_synergia(
@@ -886,7 +925,7 @@ class LibrusApiClient:
             ) as response:
                 status = response.status
                 location = response.headers.get("Location")
-                await response.read()
+                body = await _body_text(response)
         except aiohttp.ClientError as err:
             raise LibrusConnectionError(str(err)) from err
         if status in (401, 403):
@@ -898,17 +937,26 @@ class LibrusApiClient:
         if status == 200 and not location:
             # Found live (2026-10-09): Synergia's web session (DZIENNIKSID)
             # can die while the API session still works - the page then
-            # answers 200 instead of redirecting to the file. A fresh login
-            # fixes it, so report it as a dead session.
-            raise LibrusSessionExpiredError(
-                f"Session rejected on {url} (HTTP 200 without a redirect).", status_code=status
+            # answers 200 with its logged-out page instead of redirecting to
+            # the file. A fresh login fixes that, so report it as a dead
+            # session. Any other page (a missing file, an error page) is not
+            # a session problem - a relogin wouldn't help.
+            if _looks_logged_out(body):
+                raise LibrusSessionExpiredError(
+                    f"Session rejected on {url} (HTTP 200 logged-out page).", status_code=status
+                )
+            raise LibrusUnexpectedResponseError(
+                f"No download link on {url} (HTTP 200 page: {body[:200]!r})"
             )
         if not location:
-            raise LibrusUnexpectedResponseError(f"No download link on {url}")
+            raise LibrusUnexpectedResponseError(
+                f"No download link on {url} (HTTP {status})",
+                status_code=status if status >= 400 else None,
+            )
         link = urljoin(url, location)
         if "CSDownloadFailed" in link:
             raise LibrusUnexpectedResponseError(f"File not found on {url}")
-        if "sandbox.librus.pl" not in link:
+        if URL(link).host != SANDBOX_DOMAIN:
             # Synergia sends a dead session to its login page.
             raise LibrusSessionExpiredError(
                 f"Session rejected on {url} (redirected to {link}).", status_code=status
@@ -958,9 +1006,12 @@ class LibrusApiClient:
                     headers=headers,
                 ) as response:
                     try:
-                        status = (await response.json(content_type=None) or {}).get("status")
+                        answer = await response.json(content_type=None)
                     except ValueError:
-                        status = None
+                        answer = None
+                    # A list or a bare string counts as "not JSON" too (a
+                    # failed key), not a crash.
+                    status = answer.get("status") if isinstance(answer, dict) else None
                 if status == "ready":
                     async with self._session.get(
                         SANDBOX_URL,
@@ -1004,8 +1055,36 @@ def _sandbox_poll_delay(attempt: int) -> int:
     first download of a file can take longer than 30 s (later ones are
     quick). Librus's own page waits 5 s, then 10 s, and only offers to give
     up after 15 checks; this waits 3 s at first, then 10 s - about two
-    minutes in all with the default 15 checks."""
+    minutes in all with the default 15 checks (the whole download, every
+    key included, stops at `DOWNLOAD_TIMEOUT_SECONDS`)."""
     return 3 if attempt < 3 else 10
+
+
+async def _with_download_deadline(
+    download: Awaitable[AttachmentFileData], name: str
+) -> AttachmentFileData:
+    """Run one whole file download within `DOWNLOAD_TIMEOUT_SECONDS`, so a
+    slow sandbox can't keep a caller (e.g. an HTTP view) waiting for
+    minutes."""
+    try:
+        async with asyncio.timeout(DOWNLOAD_TIMEOUT_SECONDS):
+            return await download
+    except TimeoutError as err:
+        raise LibrusConnectionError(
+            f"{name} wasn't downloaded within {DOWNLOAD_TIMEOUT_SECONDS} s"
+        ) from err
+
+
+async def _body_text(response: aiohttp.ClientResponse) -> str:
+    """The response body as text, never failing on odd bytes."""
+    return (await response.read()).decode("utf-8", errors="replace")
+
+
+def _looks_logged_out(body: str) -> bool:
+    """Whether a Synergia web page is the one shown without a logged-in web
+    session (see `SYNERGIA_LOGGED_OUT_MARKERS`)."""
+    low = body.lower()
+    return any(marker in low for marker in SYNERGIA_LOGGED_OUT_MARKERS)
 
 
 _SINGLE_USE_KEY_RE = re.compile(r"singleUseKey=([0-9A-Za-z_\-]+)")

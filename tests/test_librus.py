@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 
 import aiohttp
+import pytest
 
 from librus_synergia import Librus
 from librus_synergia.const import (
@@ -14,6 +16,7 @@ from librus_synergia.const import (
     SYNERGIA_PORTAL_LOGIN_URL,
     SYNERGIA_STUDENT_INFO_URL,
 )
+from librus_synergia.exceptions import LibrusUnexpectedResponseError
 
 from .helpers import MockedSession, mock_successful_login
 from .test_parsers import STUDENT_INFO_PAGE
@@ -290,3 +293,116 @@ async def test_no_child_identifier_means_no_partial_grades() -> None:
             mocked.get(f"{DATA_BASE_URL}/Auth/TokenInfo", status=403, json_data={})
             librus = Librus("1234567u", "pw", session=session)
             assert await librus.partial_grades() == []
+
+
+TOKEN_INFO = f"{DATA_BASE_URL}/Auth/TokenInfo"
+USER_INFO = f"{DATA_BASE_URL}/Auth/UserInfo/LID-AUTH-USER-1"
+PARTIAL_GRADES = (
+    f"{DATA_BASE_URL}/Auth/DescriptiveGradingSystem/PartialGrades/Student/LID-AUTH-USER-2"
+)
+
+
+async def test_failed_child_identifier_lookup_is_tried_again() -> None:
+    """A transient failure (here a 500) must not be remembered as "no LID"."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get_sequence(
+                TOKEN_INFO,
+                {"status": 500, "json_data": {}},
+                {"json_data": {"UserIdentifier": "LID-AUTH-USER-1"}},
+            )
+            mocked.get(
+                USER_INFO, json_data={"IdentifierOfStudentAssignedWithUser": "LID-AUTH-USER-2"}
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.student_identifier() is None
+            assert await librus.student_identifier() == "LID-AUTH-USER-2"
+            assert await librus.student_identifier() == "LID-AUTH-USER-2"
+            assert mocked.get_calls[TOKEN_INFO] == 2
+
+
+async def test_definite_no_child_identifier_is_remembered() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(TOKEN_INFO, json_data={"UserIdentifier": "LID-AUTH-USER-1"})
+            mocked.get(USER_INFO, json_data={"UserInfo": {}})
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.student_identifier() is None
+            assert await librus.student_identifier() is None
+            assert mocked.get_calls[TOKEN_INFO] == 1
+            assert mocked.get_calls[USER_INFO] == 1
+
+
+async def test_concurrent_child_identifier_lookups_ask_once() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(TOKEN_INFO, json_data={"UserIdentifier": "LID-AUTH-USER-1"})
+            mocked.get(
+                USER_INFO, json_data={"IdentifierOfStudentAssignedWithUser": "LID-AUTH-USER-2"}
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            results = await asyncio.gather(*(librus.student_identifier() for _ in range(3)))
+            assert results == ["LID-AUTH-USER-2"] * 3
+            assert mocked.get_calls[TOKEN_INFO] == 1
+
+
+@pytest.mark.parametrize("status", [403, 404, 405])
+async def test_unavailable_partial_grades_are_not_asked_again(status: int) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(TOKEN_INFO, json_data={"UserIdentifier": "LID-AUTH-USER-1"})
+            mocked.get(
+                USER_INFO, json_data={"IdentifierOfStudentAssignedWithUser": "LID-AUTH-USER-2"}
+            )
+            mocked.post(PARTIAL_GRADES, status=status, json_data={"Status": "Error"})
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.partial_grades() == []
+            assert await librus.partial_grades() == []
+            assert mocked.post_calls[PARTIAL_GRADES] == 1
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 1
+
+
+async def test_partial_grades_server_error_is_raised_and_tried_again() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(TOKEN_INFO, json_data={"UserIdentifier": "LID-AUTH-USER-1"})
+            mocked.get(
+                USER_INFO, json_data={"IdentifierOfStudentAssignedWithUser": "LID-AUTH-USER-2"}
+            )
+            mocked.post(PARTIAL_GRADES, status=500, json_data={})
+            librus = Librus("1234567u", "pw", session=session)
+            for _ in range(2):
+                with pytest.raises(LibrusUnexpectedResponseError):
+                    await librus.partial_grades()
+            assert mocked.post_calls[PARTIAL_GRADES] == 2
+
+
+async def test_grading_system_is_read_once() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/GradingSystem", json_data={"plusValue": 0.3})
+            librus = Librus("1234567u", "pw", session=session)
+            first = await librus.grading_system()
+            assert await librus.grading_system() is first
+            assert mocked.get_calls[f"{DATA_BASE_URL}/GradingSystem"] == 1
+
+
+async def test_insufficient_scopes_does_not_log_in_again() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(
+                f"{DATA_BASE_URL}/SchoolInfo",
+                status=401,
+                text_data="Insufficient scopes",
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            with pytest.raises(LibrusUnexpectedResponseError):
+                await librus._call(lambda: librus.client._async_request("SchoolInfo"))
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 1

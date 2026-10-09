@@ -42,6 +42,21 @@ SYNERGIA_HOMEWORK_ATTACHMENT_URL = "https://synergia.librus.pl/homework/download
 # Sandbox download by `singleUseKey`: `CSCheckKey` (POST) until ready, then
 # `CSDownload` (GET).
 SANDBOX_URL = "https://sandbox.librus.pl/index.php"
+SANDBOX_DOMAIN = "sandbox.librus.pl"
+# Upper bound for one whole file download (every key round and every
+# `CSCheckKey` poll together). Without it the worst case is about six
+# minutes (three keys x ~two minutes of polling), far too long for a caller
+# serving the file over HTTP.
+DOWNLOAD_TIMEOUT_SECONDS = 150
+# Text of a Synergia web page shown to a browser without a logged-in web
+# session (lowercase, matched case-insensitively). Seen live 2026-10-09:
+# `/pliki_szkoly/pobierz/<id>` without a session shows "Brak dostępu"; the
+# login form itself has a password field and a "Zaloguj" button.
+SYNERGIA_LOGGED_OUT_MARKERS = ("brak dostępu", "zaloguj", 'type="password"')
+# Body of a 401 for an endpoint this account may not use at all (seen on
+# `SchoolInfo`, `Duties`, `WhatsNew`, `Reports`) - not a dead session, so a
+# fresh login can't fix it (lowercase, matched case-insensitively).
+INSUFFICIENT_SCOPES_MARKER = "insufficient scopes"
 API_OAUTH_AUTHORIZATION_URL = f"https://api.librus.pl/OAuth/Authorization?client_id={CLIENT_ID}"
 API_OAUTH_AUTHORIZATION_WITH_SCOPE_URL = (
     f"{API_OAUTH_AUTHORIZATION_URL}&response_type=code&scope=mydata"

@@ -21,6 +21,7 @@ from librus_synergia.const import (
 )
 from librus_synergia.exceptions import (
     LibrusCaptchaRequiredError,
+    LibrusConnectionError,
     LibrusInvalidCredentialsError,
     LibrusServerMaintenanceError,
     LibrusSessionExpiredError,
@@ -547,3 +548,173 @@ async def test_download_school_file() -> None:
             file = await client.async_download_school_file("/pliki_szkoly/pobierz/5")
 
             assert (file.filename, file.content) == ("regulamin.pdf", b"%PDF doc")
+
+
+async def test_insufficient_scopes_is_not_a_dead_session() -> None:
+    """A 401 saying "Insufficient scopes" (e.g. `SchoolInfo`) can't be fixed
+    by logging in again, so it must not look like an expired session."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{DATA_BASE_URL}/SchoolInfo",
+                status=401,
+                json_data={"Status": "Error", "Message": "Insufficient scopes"},
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusUnexpectedResponseError) as err:
+                await client._async_request("SchoolInfo")
+
+    assert not isinstance(err.value, LibrusSessionExpiredError)
+    assert err.value.status_code == 401
+
+
+async def test_unknown_http_method_is_refused() -> None:
+    async with aiohttp.ClientSession() as session:
+        client = LibrusApiClient(session, "1234567u")
+        with pytest.raises(ValueError, match="PUT"):
+            await client._async_request_url(f"{DATA_BASE_URL}/Me", method="PUT")
+
+
+async def test_download_page_without_redirect_and_without_logout_is_unexpected() -> None:
+    """Only Synergia's logged-out page means a dead web session; any other
+    page without a redirect (a missing file, an error) is not fixed by a
+    fresh login."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/84",
+                text_data='<html><a href="/wyloguj">Wyloguj</a> Nie znaleziono pliku</html>',
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusUnexpectedResponseError) as err:
+                await client.async_download_homework_attachment("84")
+
+    assert not isinstance(err.value, LibrusSessionExpiredError)
+
+
+async def test_download_page_with_the_login_form_is_session_expiry() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/85",
+                text_data='<form><input type="password" name="pass"><button>Zaloguj</button></form>',
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusSessionExpiredError):
+                await client.async_download_homework_attachment("85")
+
+
+async def test_download_redirect_to_a_lookalike_host_is_not_the_sandbox() -> None:
+    lookalike = "https://sandbox.librus.pl.example.invalid/GetFile/X"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/86",
+                status=302,
+                headers={"Location": lookalike},
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusSessionExpiredError):
+                await client.async_download_homework_attachment("86")
+
+            assert lookalike not in mocked.get_calls
+
+
+@pytest.mark.parametrize(
+    "download_path",
+    [
+        "https://example.invalid/pliki_szkoly/pobierz/5",
+        "//example.invalid/pliki_szkoly/pobierz/5",
+        "http://synergia.librus.pl/pliki_szkoly/pobierz/5",
+    ],
+)
+async def test_download_school_file_refuses_other_hosts(download_path: str) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session):
+            client = LibrusApiClient(session, "1234567u")
+            with pytest.raises(ValueError, match="Not a Synergia download path"):
+                await client.async_download_school_file(download_path)
+
+
+async def test_download_school_file_accepts_a_full_synergia_url() -> None:
+    link = "https://sandbox.librus.pl/GetFile/DOCKEY2"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                "https://synergia.librus.pl/pliki_szkoly/pobierz/6",
+                status=302,
+                headers={"Location": link},
+            )
+            mocked.get(link, text_data="<html>wait</html>", headers={"Content-Type": "text/html"})
+            mocked.get(f"{link}/get", body=b"%PDF", headers={"Content-Type": "application/pdf"})
+            client = LibrusApiClient(session, "1234567u")
+
+            file = await client.async_download_school_file(
+                "https://synergia.librus.pl/pliki_szkoly/pobierz/6"
+            )
+
+    assert (file.filename, file.content) == ("school-file-6", b"%PDF")
+
+
+async def test_check_key_answer_that_is_not_an_object_is_a_failed_key(monkeypatch) -> None:
+    """A JSON list (or string) from `CSCheckKey` counts as a failed key,
+    like an answer that isn't JSON - not an AttributeError."""
+    monkeypatch.setattr("librus_synergia.client.asyncio.sleep", _no_sleep)
+    location = f"{SANDBOX_URL}?action=CSTryToDownload&singleUseKey=w9_123_abc"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/87", status=302, headers={"Location": location}
+            )
+            mocked.get(location, text_data="<html>loading</html>")
+            mocked.post_sequence(
+                SANDBOX_URL,
+                {"json_data": ["ready"]},
+                {"json_data": {"status": "ready"}},
+            )
+            mocked.get(SANDBOX_URL, body=b"%PDF", headers={"Content-Type": "application/pdf"})
+            client = LibrusApiClient(session, "1234567u")
+
+            file = await client.async_download_homework_attachment("87")
+
+            assert file.content == b"%PDF"
+            assert mocked.get_calls[f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/87"] == 2
+
+
+async def test_download_gives_up_after_the_overall_deadline(monkeypatch) -> None:
+    monkeypatch.setattr("librus_synergia.client.DOWNLOAD_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr("librus_synergia.client._sandbox_poll_delay", lambda _attempt: 5)
+    location = f"{SANDBOX_URL}?action=CSTryToDownload&singleUseKey=w9_123_abc"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/88", status=302, headers={"Location": location}
+            )
+            mocked.get(location, text_data="<html>loading</html>")
+            mocked.post(SANDBOX_URL, json_data={"status": "not_downloaded_yet"})
+            client = LibrusApiClient(session, "1234567u")
+
+            started = time.monotonic()
+            with pytest.raises(LibrusConnectionError, match="homework-file-88"):
+                await client.async_download_homework_attachment("88")
+
+    assert time.monotonic() - started < 2
+
+
+async def test_message_attachment_link_outside_the_sandbox_is_refused() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{MESSAGES_BASE_URL}/attachments/9/messages/10",
+                json_data={"data": {"downloadLink": "https://example.invalid/GetFile/X"}},
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusUnexpectedResponseError, match="outside the sandbox"):
+                await client.async_download_message_attachment("9", "10")
+
+            assert "https://example.invalid/GetFile/X" not in mocked.get_calls

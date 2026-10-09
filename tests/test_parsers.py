@@ -33,6 +33,8 @@ def _b64(text: str) -> str:
         ("0", None),
         ("85", None),
         ("17,5", None),
+        ("0+", None),
+        ("0-", None),
     ],
 )
 def test_parse_grade_value(raw: str, expected: float | None) -> None:
@@ -869,6 +871,17 @@ def test_grade_value_follows_the_schools_grading_system() -> None:
     assert parse_grade_value("0") is None
     # Odd values keep the defaults.
     assert parsers.parse_grading_system({"plusValue": "x"}).plus_value == 0.5
+    assert parsers.parse_grading_system({"plusValue": "nan"}).plus_value == 0.5
+    # A modifier on 0 is never a grade, even where 0 counts.
+    assert parse_grade_value("0+", grading) is None
+    assert parse_grade_value("0-", grading) is None
+
+
+def test_grading_system_reads_numbers_given_as_strings_and_sizes() -> None:
+    grading = parsers.parse_grading_system({"plusValue": "0,75", "minusValue": "-0.5"})
+    assert (grading.plus_value, grading.minus_value) == (0.75, 0.5)
+    # A negative "+" still adds.
+    assert parsers.parse_grading_system({"plusValue": -0.5}).plus_value == 0.5
 
 
 def test_student_identifier_and_auth_subjects() -> None:
@@ -929,6 +942,29 @@ def test_parse_partial_grades() -> None:
     )
     assert grade.comments == ["Śpiewa czysto", "Brawo"]
     assert grade.requirements == ["Śpiewa piosenki"]
+
+
+def test_parse_partial_grades_odd_shapes() -> None:
+    """One comment object instead of a list, a number as the subject id, a
+    zero on the scale - none of it may be lost or crash."""
+    first, second, third = parsers.parse_partial_grades(
+        {
+            "data": [
+                {
+                    "gradeId": 1,
+                    "subjectId": "9",
+                    "scaleValue": {"value": 0},
+                    "comments": {"content": "Do poprawy"},
+                },
+                {"gradeId": 2, "subjectId": 7, "scaleValue": {"value": None}, "comments": 5},
+                {"gradeId": 3, "subjectId": "LID-UNKNOWN", "comments": "Brawo"},
+            ]
+        },
+        {"LID-S-9": 9},
+    )
+    assert (first.subject_id, first.value, first.comments) == (9, "0", ["Do poprawy"])
+    assert (second.subject_id, second.value, second.comments) == (7, "", [])
+    assert (third.subject_id, third.value, third.comments) == (None, "", ["Brawo"])
 
 
 def test_parse_message_receivers() -> None:
