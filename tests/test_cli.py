@@ -8,6 +8,7 @@ from datetime import date, timedelta
 import pytest
 
 from librus_synergia import cli
+from librus_synergia._dates import school_today
 from librus_synergia.changes import Changes
 
 from .test_changes import _data, _grade, _lesson
@@ -26,7 +27,7 @@ def test_interval_floor() -> None:
 
 
 def test_summary_resolves_subject_names(capsys: pytest.CaptureFixture[str]) -> None:
-    tomorrow = date.today() + timedelta(days=1)
+    tomorrow = school_today() + timedelta(days=1)
     data = _data(
         grades=[_grade(1, "4+")],
         subjects={1: "Matematyka", 7: "Fizyka"},

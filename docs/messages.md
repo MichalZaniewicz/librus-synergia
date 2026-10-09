@@ -17,10 +17,14 @@ Run this with the main session cookies. It sets the cookies for
 - ✅ The messages session **expires independently of the main session,
   and much more often** (sometimes within the hour). When the session is
   rejected (401/403) or another HTTP error status comes back - except a
-  404 (no such mailbox) - `Librus` logs in, bootstraps again and retries
-  once. A network error or timeout, and an answer without an error status
-  that isn't what was expected (not JSON, a failed download), are raised
-  as they are: a fresh login doesn't change them.
+  404 (no such mailbox) - `Librus` first only bootstraps again (one
+  request) and retries; if that is rejected too, it logs in with the
+  password, bootstraps and retries once more. A network error or timeout,
+  a 429/502/503/504, and an answer without an error status that isn't what
+  was expected (not JSON, a failed download), are raised as they are: a
+  fresh login doesn't change them. Every password login (wherever it came
+  from) makes `Librus` bootstrap again before the next Wiadomości call, and
+  concurrent calls share one bootstrap.
 
 ## Endpoints
 
@@ -90,8 +94,8 @@ them for an **unread** message would mark it read. `Librus.download_attachment`
 does steps 1-3. It only follows an `https://sandbox.librus.pl/...`
 `downloadLink` (anything else, or a link that isn't a valid URL, is
 `LibrusUnexpectedResponseError`), and gives up with `LibrusConnectionError`
-after 150 s (`DOWNLOAD_TIMEOUT_SECONDS`) - the whole call, a fresh login and
-retry included. It logs in and bootstraps Wiadomości again once only when
-the session was rejected (or an HTTP error status came back); a timeout or
-an odd answer (a link outside the sandbox, a failed download) is raised
-straight away.
+after 150 s (`DOWNLOAD_TIMEOUT_SECONDS`) - the whole call, logins and
+retries included. Only when the session was rejected (or an HTTP error
+status came back) does it bootstrap Wiadomości again (and, if that isn't
+enough, log in once); a timeout or an odd answer (a link outside the
+sandbox, a failed download) is raised straight away.

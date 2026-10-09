@@ -16,7 +16,11 @@ from librus_synergia.const import (
     SYNERGIA_PORTAL_LOGIN_URL,
     SYNERGIA_STUDENT_INFO_URL,
 )
-from librus_synergia.exceptions import LibrusConnectionError, LibrusUnexpectedResponseError
+from librus_synergia.exceptions import (
+    LibrusConnectionError,
+    LibrusSessionExpiredError,
+    LibrusUnexpectedResponseError,
+)
 from librus_synergia.librus import RECHECK_SECONDS
 
 from .helpers import MockedSession, mock_successful_login
@@ -112,7 +116,7 @@ async def test_regular_account_never_probes_kindergarten() -> None:
             librus = Librus("1234567u", "pw", session=session)
             assert await librus.timetable(date(2026, 9, 3)) == {}
             # Any kindergarten request would hit an unregistered URL and fail.
-            assert librus._kindergarten_checked is False
+            assert librus._kindergarten_checked_at is None
 
 
 async def test_kindergarten_account_found_after_timetable_403() -> None:
@@ -474,7 +478,9 @@ async def test_message_attachment_odd_answer_does_not_log_in_again() -> None:
             assert mocked.get_calls[ATTACHMENT] == 1
 
 
-async def test_message_attachment_rejected_session_logs_in_again() -> None:
+async def test_message_attachment_rejected_session_bootstraps_again() -> None:
+    """A rejected Wiadomości session is first set up again on its own (one
+    request) - no password login."""
     async with aiohttp.ClientSession() as session:
         with MockedSession(session) as mocked:
             mock_successful_login(session, mocked)
@@ -493,8 +499,49 @@ async def test_message_attachment_rejected_session_logs_in_again() -> None:
             file = await librus.download_attachment("55", "99")
 
             assert file is not None and file.content == b"%PDF"
-            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 2
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 1
             assert mocked.get_calls[MESSAGES_BOOTSTRAP_URL] == 2
+
+
+async def test_message_attachment_still_rejected_logs_in_again() -> None:
+    """When setting up the Wiadomości session again doesn't help, one
+    password login (and a bootstrap for it) follows."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(MESSAGES_BOOTSTRAP_URL, text_data="<html>ok</html>")
+            mocked.get_sequence(
+                ATTACHMENT,
+                {"status": 401, "text_data": ""},
+                {"status": 401, "text_data": ""},
+                {"json_data": {"data": {"downloadLink": SANDBOX_LINK}}},
+            )
+            mocked.get(SANDBOX_LINK, text_data="<html>wait</html>")
+            mocked.get(
+                f"{SANDBOX_LINK}/get", body=b"%PDF", headers={"Content-Type": "application/pdf"}
+            )
+            librus = Librus("1234567u", "pw", session=session)
+
+            file = await librus.download_attachment("55", "99")
+
+            assert file is not None and file.content == b"%PDF"
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 2
+            assert mocked.get_calls[MESSAGES_BOOTSTRAP_URL] == 3
+
+
+async def test_messages_rejected_three_times_is_raised() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(MESSAGES_BOOTSTRAP_URL, text_data="<html>ok</html>")
+            mocked.get(f"{MESSAGES_BASE_URL}/inbox/messages", status=401, text_data="")
+            librus = Librus("1234567u", "pw", session=session)
+
+            with pytest.raises(LibrusSessionExpiredError):
+                await librus.messages()
+
+            assert mocked.get_calls[f"{MESSAGES_BASE_URL}/inbox/messages"] == 3
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 2
 
 
 async def test_download_deadline_covers_the_login(monkeypatch) -> None:

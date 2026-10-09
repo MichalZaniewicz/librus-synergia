@@ -119,6 +119,19 @@ ASSUMED_SESSION_LIFETIME_SECONDS = 20 * 3600
 # long-running client keeps one session instead of logging in daily.
 SESSION_REFRESH_AFTER_SECONDS = 2 * 3600
 SESSION_EXPIRY_SAFETY_MARGIN_SECONDS = 300
+# After a failed refresh (an error, or an answer that didn't set a new
+# `oauth_token` cookie), don't try `refreshToken` again for this long.
+REFRESH_RETRY_AFTER_SECONDS = 30 * 60
+
+# Default per-request timeout for data and login requests (seconds): the
+# whole request, and connecting alone. File downloads keep their own overall
+# deadline (`DOWNLOAD_TIMEOUT_SECONDS`) instead.
+REQUEST_TIMEOUT_SECONDS = 30
+REQUEST_CONNECT_TIMEOUT_SECONDS = 10
+
+# The school's own time zone: "today" (this week's timetable, which lessons
+# are still ahead) is Polish school time, whatever the machine's zone is.
+SCHOOL_TIMEZONE = "Europe/Warsaw"
 
 ENDPOINT_ME = "Me"
 ENDPOINT_GRADES = "Grades"

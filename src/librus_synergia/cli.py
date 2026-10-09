@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from ._dates import school_today
 from .changes import Changes, ChangeTracker, SeenIds
 from .client import LibrusSessionData
 from .exceptions import LibrusAuthError, LibrusError
@@ -68,7 +69,7 @@ def _print_summary(data: LibrusData) -> None:
     if not grades:
         print("  -")
 
-    today = date.today()
+    today = school_today()
     print("\nPlan (najbliższe dni):")
     upcoming = [(d, lessons) for d, lessons in sorted(data.timetable.items()) if d >= today][:3]
     for day, lessons in upcoming:
@@ -125,9 +126,46 @@ def _load_json(path: Path | None) -> dict[str, Any] | None:
     return loaded if isinstance(loaded, dict) else None
 
 
-def _save_json(path: Path | None, payload: dict[str, Any]) -> None:
-    if path is not None:
-        path.write_text(json.dumps(payload), encoding="utf-8")
+def _save_json(path: Path | None, payload: dict[str, Any], *, private: bool = False) -> None:
+    """Write `payload` to `path`. `private` (the session file, which holds
+    login cookies): readable by the owner only (mode 0o600)."""
+    if path is None:
+        return
+    text = json.dumps(payload)
+    if not private:
+        path.write_text(text, encoding="utf-8")
+        return
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as file:
+        file.write(text)
+    os.chmod(path, 0o600)  # an existing file keeps its old mode otherwise
+
+
+async def _watch(args: argparse.Namespace, librus: Librus) -> int:
+    saved_state = _load_json(args.state)
+    tracker = ChangeTracker(SeenIds.from_dict(saved_state) if saved_state else None)
+    print(f"Sprawdzam co {args.interval} min. Ctrl+C kończy.", file=sys.stderr)
+    while True:
+        try:
+            data = await librus.fetch_changes()
+        except LibrusAuthError:
+            raise
+        except LibrusError as err:
+            # Librus down, a timeout, an odd answer: try again next time.
+            stamp = datetime.now().strftime("%H:%M")
+            print(f"[{stamp}] Błąd Librusa (spróbuję ponownie): {err}", file=sys.stderr)
+        else:
+            was_seeded = tracker.is_seeded
+            changes = tracker.update(data)
+            if not was_seeded:
+                print(
+                    "Zapamiętano obecny stan - od teraz pokazuję tylko nowości.",
+                    file=sys.stderr,
+                )
+            _print_changes(data, changes)
+            _save_json(args.state, tracker.seen.to_dict())
+            _save_json(args.session, dataclasses.asdict(librus.session_data), private=True)
+        await asyncio.sleep(args.interval * 60)
 
 
 async def _run(args: argparse.Namespace, login: str, password: str) -> int:
@@ -135,30 +173,14 @@ async def _run(args: argparse.Namespace, login: str, password: str) -> int:
     session_data = LibrusSessionData(**saved_session) if saved_session else None
     async with Librus(login, password, session_data=session_data) as librus:
         try:
-            if not args.watch:
-                data = await librus.fetch_all()
-                if args.json:
-                    print(_to_json(data))
-                else:
-                    _print_summary(data)
-                return 0
-
-            saved_state = _load_json(args.state)
-            tracker = ChangeTracker(SeenIds.from_dict(saved_state) if saved_state else None)
-            print(f"Sprawdzam co {args.interval} min. Ctrl+C kończy.", file=sys.stderr)
-            while True:
-                data = await librus.fetch_all()
-                was_seeded = tracker.is_seeded
-                changes = tracker.update(data)
-                if not was_seeded:
-                    print(
-                        "Zapamiętano obecny stan - od teraz pokazuję tylko nowości.",
-                        file=sys.stderr,
-                    )
-                _print_changes(data, changes)
-                _save_json(args.state, tracker.seen.to_dict())
-                _save_json(args.session, dataclasses.asdict(librus.session_data))
-                await asyncio.sleep(args.interval * 60)
+            if args.watch:
+                return await _watch(args, librus)
+            data = await librus.fetch_all()
+            if args.json:
+                print(_to_json(data))
+            else:
+                _print_summary(data)
+            return 0
         except LibrusAuthError as err:
             print(f"Logowanie nie powiodło się: {err}", file=sys.stderr)
             return 2
@@ -166,7 +188,7 @@ async def _run(args: argparse.Namespace, login: str, password: str) -> int:
             print(f"Błąd Librusa: {err}", file=sys.stderr)
             return 1
         finally:
-            _save_json(args.session, dataclasses.asdict(librus.session_data))
+            _save_json(args.session, dataclasses.asdict(librus.session_data), private=True)
 
 
 def main(argv: list[str] | None = None) -> int:

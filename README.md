@@ -60,7 +60,7 @@ librus-synergia --json > librus.json     # everything, as JSON
 librus-synergia --watch --state seen.json   # check every 15 min and print what's new
 ```
 
-Credentials come from the `LIBRUS_LOGIN` / `LIBRUS_PASSWORD` environment variables, or you're asked for them. Add `--session session.json` to reuse the login between runs, and keep that file private.
+Credentials come from the `LIBRUS_LOGIN` / `LIBRUS_PASSWORD` environment variables, or you're asked for them. Add `--session session.json` to reuse the login between runs; the file is written readable by you only (mode 0600), keep it private. `--watch` asks only for what it compares (`fetch_changes()`), keeps going through outages and timeouts (it prints the error and tries again next time), and stops only when the login fails.
 
 ## Quick start
 
@@ -94,8 +94,9 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `grades()`, `grade_categories()` | grades with teacher comments resolved; weights and categories |
 | `descriptive_grades()`, `behaviour_grades()` | descriptive grades (grade, skill, teacher, comments); formal behaviour grade (ocena zachowania) |
 | `partial_grades()` | grades from the new descriptive grading some schools use for grade 1 from 2026 (`source="partial"`; the item fields are not yet confirmed on a real grade) |
+| `student_identifier()` | the child's `LID-AUTH-USER-...` that `partial_grades()` needs, or `None` |
 | `grading_system()` | the school's scale: what `+` adds, what `-` takes away, whether `0` counts - pass it to `parse_grade_value(value, grading)` |
-| `point_grades()` | point grades (schools grading 0-100 or in points) with each category's maximum and weight; `parsers.point_grades_percentage()` averages them |
+| `point_grades()`, `point_grades_enabled()` | point grades (schools grading 0-100 or in points) with each category's maximum and weight - `parsers.point_grades_percentage()` averages them; whether the school has point grades on (`Units`) |
 | `notes()`, `note_categories()` | behaviour notes (uwagi) with positive/negative/neutral `sentiment` |
 | `attendances()`, `attendance_types()` | attendance records; types with `is_presence_kind` / `is_excused_absence` |
 | `justifications()` | absence justifications the parent submitted, with their status (`is_accepted` / `is_pending` / `is_rejected`); `parsers.justified_dates()` gives the days already covered |
@@ -110,6 +111,7 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `homework_categories()` | homework assignment categories |
 | `download_attachment(attachment_id, message_id)` | a message attachment (name, type, bytes), without opening the message |
 | `download_homework_attachment(attachment_id)` | a homework attachment (name, type, bytes) |
+| `download_school_file(download_path)` | a document from `school_files()` (name, type, bytes) |
 | `announcements()` | school notice board (tablica ogłoszeń) |
 | `lucky_number()` | szczęśliwy numerek, with the day it applies to |
 | `unread_messages()`, `messages(mailbox="inbox", *, limit=10)` | unread count per mailbox; message previews (listing never marks read); `mailbox="outbox"` gives sent messages with `receiver_name`, `"archive/inbox"` past school years |
@@ -117,9 +119,18 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `subjects()`, `teachers()`, `classrooms()` | id → name lookups |
 | `school()`, `school_class()` | school details; class, homeroom teacher and semester dates |
 | `kindergartener_id()` | the child's `LID-AUTH-USER-...` on a kindergarten account, else `None` (`timetable()` uses it on its own) |
-| `fetch_all()` | most of the above as one `LibrusData` snapshot - not `student_number()`, `message()`, `download_attachment()` or `download_homework_attachment()`, and messages are the 10 latest from the inbox only |
+| `fetch_all()` | most of the above as one `LibrusData` snapshot (about 35 requests) - not `student_number()`, `message()` or the downloads, and messages are the 10 latest from the inbox only. Sections that failed are listed in `failed_sections` |
+| `fetch_changes()` | only what `ChangeTracker` needs (grades, notes, announcements, agenda, attendances, two weeks of timetable, inbox messages, subject names) - about 10 requests, for polling |
 
-Every method logs in lazily and retries once after a fresh login if the session has expired. A session older than 2 hours is renewed through Librus's own `refreshToken`, so a long-running program doesn't log in with the password every day.
+Every method logs in lazily and retries once after a fresh login if the session has expired; requests that hit the same dead session share one login. A failed login is remembered for 60 s instead of sending the password again right away. A session older than 2 hours is renewed through Librus's own `refreshToken` (retried at most every 30 minutes when it doesn't work), so a long-running program doesn't log in with the password every day. Modules Librus refuses for the account (a 403/404, ...) come back empty and aren't asked for again for a day.
+
+Options of `Librus(...)`:
+
+- `request_timeout` - per data/login request, default 30 s (10 s to connect); `None` leaves it to the session. File downloads have their own 150 s limit.
+- `max_concurrent_requests` - default 6. A session the library creates itself also allows 6 connections per host.
+- `cache_reference_data=True` - keep subjects, teachers, classrooms, categories, attendance types, the lesson map, school and class for `reference_ttl` seconds (default a day). `fetch_all()` fetches one again early when the data mentions an id it doesn't know. Off by default.
+
+"Today" (this week's timetable, which lessons are still ahead) is today in Poland, whatever the machine's time zone.
 
 ## What's new since last time?
 
@@ -135,11 +146,11 @@ for grade in changes.grades:
 save(tracker.seen.to_dict())      # plain JSON-able dict
 ```
 
-The first update only remembers what already exists, so a whole school year isn't reported as "new". An item that drops out of Librus's window and comes back isn't reported twice.
+The first update only remembers what already exists, so a whole school year isn't reported as "new". An item that drops out of Librus's window and comes back isn't reported twice. A kind whose data failed to fetch (`LibrusData.failed_sections`) is skipped - neither reported nor seeded - so a failed first fetch doesn't make a whole year look new later. For polling, `fetch_changes()` gets the same answers with far fewer requests than `fetch_all()`.
 
 ## Kindergarten accounts
 
-Kindergarten (przedszkole) accounts don't have the regular timetable: Librus answers it with HTTP 403. After such a 403, `timetable()` looks for the child once and switches to the kindergarten timetable API on its own. `subjects()`, `teachers()`, `classrooms()` and `school_class()` then include the kindergarten activities, rooms and group. Lessons there are time blocks, so `lesson_no` is `None`. See [kindergarten accounts](https://michalzaniewicz.github.io/librus-synergia/kindergarten/).
+Kindergarten (przedszkole) accounts don't have the regular timetable: Librus answers it with HTTP 403. After such a 403, `timetable()` looks for the child (at most once a day while none is found) and switches to the kindergarten timetable API on its own. `subjects()`, `teachers()`, `classrooms()` and `school_class()` then include the kindergarten activities, rooms and group. Lessons there are time blocks, so `lesson_no` is `None`. See [kindergarten accounts](https://michalzaniewicz.github.io/librus-synergia/kindergarten/).
 
 ## Keeping the session between runs
 
@@ -175,17 +186,17 @@ The **[unofficial Librus API notes](https://michalzaniewicz.github.io/librus-syn
 
 ## Errors
 
-Everything raises a subclass of `LibrusError`:
+Every problem with Librus - an HTTP error, an odd answer, a network error, a timeout - raises a subclass of `LibrusError`:
 
-- `LibrusAuthError`: `LibrusInvalidCredentialsError`, `LibrusCaptchaRequiredError`, `LibrusSessionExpiredError` (carries `status_code`)
-- `LibrusConnectionError`: `LibrusServerMaintenanceError` (HTTP 503)
-- `LibrusUnexpectedResponseError`: a response shape we didn't expect
+- `LibrusAuthError`: `LibrusInvalidCredentialsError`, `LibrusCaptchaRequiredError`, `LibrusSessionExpiredError` (carries `status_code`); `LibrusAccountActionRequiredError` is reserved and not raised yet
+- `LibrusConnectionError`: network errors and timeouts, HTTP 429/502/504 (with `status_code`), and `LibrusServerMaintenanceError` (HTTP 503)
+- `LibrusUnexpectedResponseError`: a response shape we didn't expect (carries `status_code` for an HTTP error such as 404)
 
 See [errors and status codes](https://michalzaniewicz.github.io/librus-synergia/errors/).
 
 ## Please be gentle
 
-These are real children's school accounts. Cache lookups (`subjects()`, `teachers()` and similar change rarely), don't poll more than every ~15 minutes, and don't retry in a loop.
+These are real children's school accounts. Cache lookups (`subjects()`, `teachers()` and similar change rarely - `cache_reference_data=True` does it for you), poll with `fetch_changes()` rather than `fetch_all()`, don't poll more than every ~15 minutes, and don't retry in a loop.
 
 ## Credits
 

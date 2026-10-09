@@ -26,7 +26,8 @@ GET https://synergia.librus.pl/gateway/ms/kindergartens/timetable/kindergartener
 
 ❓ The child identifier (`LID-AUTH-USER-...`) is not in one obvious place.
 Candidates, in the order `Librus.kindergartener_id()` tries them (at most
-6 are tested, once per `Librus` instance):
+6 are tested; a found child is kept for the `Librus` instance, a search that
+found nothing - or whose requests failed - is repeated at most once a day):
 
 1. `LID-AUTH-USER-...` strings in `Me.User`, then anywhere in `Me`.
 2. `Auth/TokenInfo`, then `Auth/UserInfo/<lid>`.

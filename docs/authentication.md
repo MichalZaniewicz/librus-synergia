@@ -77,9 +77,14 @@ If any response body in steps 3–4 contains a captcha marker (`captcha`,
   extended session lasts was not measured. `Me` also reports `Refresh: 900`.
   `async_ensure_session_valid` calls it (`async_refresh_session`) once the
   session is 2 hours old and falls back to a password login if it fails.
+  A refresh only counts when that very answer sets a new `oauth_token`
+  (a 200 without one is a failure); after a failure the client doesn't try
+  `refreshToken` again for 30 minutes.
 - ✅ The session can die **before** 24 h. The client assumes a 20 h
   lifetime, and on an HTTP 401 from a data endpoint it logs in again once
-  and retries. `Librus` does this for you.
+  and retries. `Librus` does this for you - and when several requests hit
+  the same dead session at once, they all wait for one login instead of
+  each logging in.
 - To resume later, persist `LibrusSessionData` (via `export_session()` or
   `Librus.session_data`) and pass it back via `import_session()` or
   `Librus(..., session_data=...)`.

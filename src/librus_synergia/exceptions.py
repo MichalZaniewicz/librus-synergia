@@ -23,7 +23,17 @@ class LibrusError(Exception):
 
 
 class LibrusConnectionError(LibrusError):
-    """Network/timeout/DNS failure, or an unreachable Librus host. Transient."""
+    """Network/timeout/DNS failure, an unreachable Librus host, or an HTTP
+    status that means "try again later". Transient.
+
+    `status_code` is set when an HTTP status caused it: 429 (too many
+    requests), 502 or 504 (a gateway in front of Librus failed), and 503 for
+    the `LibrusServerMaintenanceError` subclass. None for a network error or
+    a timeout."""
+
+    def __init__(self, message: str = "", *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class LibrusServerMaintenanceError(LibrusConnectionError):
@@ -78,9 +88,13 @@ class LibrusCaptchaRequiredError(LibrusAuthError):
 
 
 class LibrusAccountActionRequiredError(LibrusAuthError):
-    """The account needs the user to take an action on Librus's own site
-    (accept rules, change password, complete 2FA some other way) before this
-    this client can sign in again."""
+    """Reserved: the account needs the user to take an action on Librus's
+    own site (accept rules, change password, complete 2FA some other way)
+    before this client can sign in again.
+
+    Not raised by this library today - no such answer has been seen live,
+    so there is nothing to recognise it by. Kept (and exported) so callers
+    that already handle it keep working, and for when such a case turns up."""
 
 
 class LibrusUnexpectedResponseError(LibrusError):

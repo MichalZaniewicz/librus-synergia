@@ -8,6 +8,7 @@ support aiohttp>=3.11.
 from __future__ import annotations
 
 import json
+from http.cookies import SimpleCookie
 from typing import Any
 from unittest.mock import patch
 from urllib.parse import urljoin
@@ -41,15 +42,23 @@ class FakeResponse:
         headers: dict[str, str] | None = None,
         body: bytes | None = None,
         read_error: BaseException | None = None,
+        cookies: dict[str, str] | None = None,
     ) -> None:
         self._body = body
         self._read_error = read_error
         self.status = status
         self.headers = headers or {}
+        # What this response's own Set-Cookie headers set (aiohttp's
+        # `ClientResponse.cookies`).
+        self.cookies: SimpleCookie = SimpleCookie()
+        for name, value in (cookies or {}).items():
+            self.cookies[name] = value
         self.url = URL("https://example.invalid/")
         self._text = json.dumps(json_data) if json_data is not None else text_data
         length = self.headers.get("Content-Length")
         self.content_length = int(length) if length is not None else None
+        # How many times the body was read (`read()`, or `text()`).
+        self.reads = 0
 
     async def json(self, content_type: str | None = "application/json") -> Any:
         # Mirrors real aiohttp: content_type=None bypasses the content-type
@@ -60,6 +69,7 @@ class FakeResponse:
     async def text(self, encoding: str | None = None, errors: str = "strict") -> str:
         # Like aiohttp: decode `body` with the charset the Content-Type
         # names (UTF-8 otherwise); an unknown charset raises LookupError.
+        self.reads += 1
         if self._read_error is not None:
             raise self._read_error
         if self._body is None:
@@ -72,6 +82,7 @@ class FakeResponse:
         return self._body.decode(encoding or charset or "utf-8", errors)
 
     async def read(self) -> bytes:
+        self.reads += 1
         if self._read_error is not None:
             raise self._read_error
         return self._body if self._body is not None else self._text.encode()
@@ -106,6 +117,8 @@ class MockedSession:
         self.get_calls: dict[str, int] = {}
         self._queued_posts: dict[str, list[FakeResponse]] = {}
         self.post_calls: dict[str, int] = {}
+        # Keyword arguments of the latest request to each URL.
+        self.kwargs: dict[str, dict[str, Any]] = {}
         self._patches = [
             patch.object(session, "get", side_effect=self._handle_get),
             patch.object(session, "post", side_effect=self._handle_post),
@@ -131,7 +144,8 @@ class MockedSession:
         self._queued_posts[url] = [FakeResponse(**r) for r in responses]
         self.post_calls.setdefault(url, 0)
 
-    def _handle_get(self, url: Any, **_kwargs: Any) -> FakeResponse:
+    def _handle_get(self, url: Any, **kwargs: Any) -> FakeResponse:
+        self.kwargs[str(url)] = kwargs
         self.get_calls[str(url)] = self.get_calls.get(str(url), 0) + 1
         queue = self._queued.get(str(url))
         if queue:
@@ -141,7 +155,8 @@ class MockedSession:
             raise AssertionError(f"Unexpected GET {url}")
         return response
 
-    def _handle_post(self, url: Any, **_kwargs: Any) -> FakeResponse:
+    def _handle_post(self, url: Any, **kwargs: Any) -> FakeResponse:
+        self.kwargs[str(url)] = kwargs
         self.post_calls[str(url)] = self.post_calls.get(str(url), 0) + 1
         queue = self._queued_posts.get(str(url))
         if queue:

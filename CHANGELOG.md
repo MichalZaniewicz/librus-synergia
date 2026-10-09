@@ -1,5 +1,98 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Timeouts no longer escape as a bare `TimeoutError`.** Every request -
+  data, the login steps, `refreshToken`, the Wiadomości bootstrap, the
+  "Informacje" page, downloads - raises `LibrusConnectionError` on a network
+  error or a timeout (`async_refresh_session` returns False instead).
+- **No more relogin stampede.** Requests that hit the same dead session wait
+  for one login instead of each logging in. A failed login is remembered for
+  60 s: calls in that time that would need the password get the same error
+  without sending it again. A failed login also leaves the client "not
+  logged in", so the next call doesn't trust half-replaced cookies.
+- **One failure no longer leaves requests running.** `fetch_all()` and the
+  paired lookups use a `TaskGroup`: when one part fails for good, the rest
+  are cancelled, and the error is raised as itself (not an
+  `ExceptionGroup`).
+- **A failing `refreshToken` isn't retried on every call** - at most every
+  30 minutes. A refresh only counts when the answer sets a new
+  `oauth_token` cookie.
+- **`ChangeTracker` no longer seeds a kind whose fetch failed.** New
+  `LibrusData.failed_sections` (filled by `fetch_all()`/`fetch_changes()`):
+  a failed kind is skipped - neither reported nor remembered - and seeded
+  silently the first time its data arrives. Absences need both attendances
+  and their types. `SeenIds` gained `seeded` (saved by `to_dict()`); a dict
+  saved by an older version counts every kind as seeded.
+- **Bodies in another charset, or with odd bytes, no longer crash.** Error
+  pages, login answers, the "Informacje" page and the bootstrap are read in
+  the charset they name, with bad bytes replaced; JSON in a non-UTF-8
+  charset is still decoded.
+- **Parsers skip records without a usable id** instead of crashing on
+  `int()` (grades, categories, comments, notes, attendance types, agenda,
+  homework, behaviour and descriptive grades, conferences, free days, id-name
+  lookups, the lesson map). Attendance ids like `"t123"` still work. A null
+  `Grade`, `content`, `Message`, `topic`, `Text`, `Content` becomes `""`
+  (not `"None"` or a crash), and a category `Weight` given as a string
+  (`"2"`, `"1,5"`) is read; an unreadable one counts as 1.
+- **Login steps 1 and 2 read and release their responses.**
+- **CLI `--watch` keeps going** through network errors, timeouts and odd
+  answers (prints the error, tries again next time); it stops only when the
+  login fails. The session file is written readable by the owner only
+  (mode 0600).
+- **A rejected Wiadomości session is first only bootstrapped again** (one
+  request) and retried; a password login follows only if that fails too.
+  Any password login makes the next Wiadomości call bootstrap again, and
+  concurrent calls share one bootstrap.
+- **"Today" is today in Poland** (`Europe/Warsaw`) for the default
+  timetable week, the kindergarten search and `ChangeTracker`'s timetable
+  changes. `tzdata` is now a dependency on Windows.
+- **A kindergarten search that found nothing is repeated after a day**
+  (it used to run once per instance).
+
+### Changed
+- **HTTP 429, 502 and 504 raise `LibrusConnectionError`** with
+  `status_code` (502/504 used to be `LibrusUnexpectedResponseError`).
+  `LibrusConnectionError` gained an optional `status_code`; 503 is still
+  `LibrusServerMaintenanceError`, now with `status_code=503`. 401/403/404
+  are unchanged. Neither logs in again.
+- **Optional modules Librus refuses come back empty from `Librus`** and
+  aren't asked for again for a day: `point_grades()` (+ categories),
+  `parent_teacher_conferences()`, `text_grades()`, `school_trips()`,
+  `school_files()`, `justifications()`, `behaviour_grades()`. Other errors
+  are still raised.
+- `grades()` and `behaviour_grades()` keep the grades when the comment
+  lookup fails (without comment text).
+- `GradeCategoryData.weight` is typed `float` (still an `int` for a whole
+  weight).
+- New `LibrusApiClient.login_count`, `Librus.point_grades_enabled()`.
+- `LibrusAccountActionRequiredError` is documented as reserved: nothing
+  raises it yet.
+
+### Performance
+- **Default request timeout**: 30 s per data/login request, 10 s to connect
+  (`request_timeout=`; None leaves it to the session). Downloads keep their
+  own 150 s deadline.
+- **At most 6 requests at a time** per `Librus` (`max_concurrent_requests`);
+  a session the library creates allows 6 connections per host.
+- **`Librus.fetch_changes()`**: only what `ChangeTracker` compares (~10
+  requests instead of ~35). The CLI's `--watch` uses it.
+- **`cache_reference_data=True`** keeps subjects, teachers, classrooms,
+  categories, attendance types, the lesson map, school and class for
+  `reference_ttl` (default a day), fetching one again early when the data
+  mentions an unknown id.
+- `point_grades()` doesn't ask when `Units` says point grades are off, and
+  fetches the categories only when there are grades; text-grade categories
+  likewise.
+- Comment lists (grades, behaviour and descriptive grades) are fetched only
+  when an item refers to a comment; the descriptive skills list only when a
+  grade has a skill.
+- Messages run alongside the rest of `fetch_all()` instead of after it.
+- Small error bodies (up to 64 KB) are read before raising, so the
+  connection can be reused.
+- JSON is decoded straight from bytes (with `orjson` when it's installed).
+
 ## 0.3.17
 
 ### Fixed

@@ -32,7 +32,10 @@ class GradeCategoryData:
     id: int
     name: str
     count_to_average: bool
-    weight: int
+    # An int for a whole weight (the usual case); a float only when the
+    # school uses a fractional one. 1 when Librus gives none (or nothing
+    # readable).
+    weight: float
 
 
 @dataclass(slots=True)
@@ -665,6 +668,8 @@ class LibrusData:
     free_days: list[FreeDayData] = field(default_factory=list)
     homework_categories: dict[int, str] = field(default_factory=dict)
     note_categories: dict[int, str] = field(default_factory=dict)
+    # Not filled by `fetch_all()` (kept for callers that build a snapshot
+    # themselves, e.g. from `BehaviourGrades/Points/Categories`).
     behaviour_grade_categories: dict[int, str] = field(default_factory=dict)
     homework_assignments: list[HomeworkAssignmentData] = field(default_factory=list)
     behaviour_grades: list[BehaviourGradeData] = field(default_factory=list)
@@ -678,11 +683,10 @@ class LibrusData:
     school_files: list[SchoolFileData] = field(default_factory=list)
     homework_assignment_categories: dict[int, str] = field(default_factory=dict)
     parent_teacher_conferences: list[ParentTeacherConferenceData] = field(default_factory=list)
-    # Full message CONTENT for a couple of the most actionable secondary
-    # mailboxes (unlike unread_messages_by_mailbox above, which only ever
-    # carries counts for every mailbox) - "substitutions" (zastępstwa) and
-    # "alerts" (alerty) are the two a parent is most likely to want to
-    # actually read, not just know a count for.
+    # Message lists of a few secondary mailboxes ("substitutions",
+    # "alerts", "justifications") - unlike unread_messages_by_mailbox
+    # above, which only carries counts. `fetch_all()` leaves these empty
+    # (it reads the inbox only); fill them with `Librus.messages(mailbox)`.
     substitution_messages: list[MessageData] = field(default_factory=list)
     alert_messages: list[MessageData] = field(default_factory=list)
     justification_messages: list[MessageData] = field(default_factory=list)
@@ -697,6 +701,13 @@ class LibrusData:
     lesson_subjects: dict[int, int] = field(default_factory=dict)
     # The standing weekly plan (`TimetableEntries`); see `plan_differences`.
     standing_timetable: list[StandingLessonData] = field(default_factory=list)
+    # Names of the fields above that couldn't be fetched this time and hold
+    # their defaults instead of real data (an endpoint failed, or - for
+    # "messages" / "unread_messages_by_mailbox" - messages weren't asked
+    # for). `ChangeTracker` skips the kinds that depend on them, so a failed
+    # fetch isn't mistaken for "everything is gone" (or, later, for
+    # "everything is new"). Empty for a snapshot built by hand.
+    failed_sections: set[str] = field(default_factory=set)
 
 
 @dataclass(slots=True)

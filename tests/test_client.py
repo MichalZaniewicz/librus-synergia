@@ -282,7 +282,12 @@ async def test_old_session_is_refreshed_without_a_login() -> None:
     (no password login) and the session counts as fresh again."""
     async with aiohttp.ClientSession() as session:
         with MockedSession(session) as mocked:
-            mocked.get(SYNERGIA_REFRESH_TOKEN_URL, status=200, text_data="")
+            mocked.get(
+                SYNERGIA_REFRESH_TOKEN_URL,
+                status=200,
+                text_data="",
+                cookies={"oauth_token": "renewed"},
+            )
             updates: list[LibrusSessionData] = []
             client = LibrusApiClient(session, "1234567u", on_session_update=updates.append)
             session.cookie_jar.update_cookies(

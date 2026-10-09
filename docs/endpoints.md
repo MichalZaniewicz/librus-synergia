@@ -18,7 +18,12 @@ Two things apply to every endpoint:
 - **References are objects, not ids.** A grade's subject arrives as
   `{"Id": 42, "Url": ".../Subjects/42"}`. Fetch the lookup endpoints
   (Subjects, Users, Classrooms, categories) once a day and join on your
-  side.
+  side. A record whose `Id` isn't a usable number (other than the known
+  string ids above) is skipped by the parsers.
+
+❓ Whether any endpoint supports conditional requests (`ETag` /
+`If-None-Match`, `Last-Modified` / `If-Modified-Since`) is unknown - not
+tested yet.
 
 ## Identity and school
 
@@ -60,7 +65,7 @@ Two things apply to every endpoint:
 | `Users` | `Users` | ✅ The teachers lookup. ✅ `FirstName` can be **`null`** (present but null, e.g. for secretariat accounts), so `dict.get("FirstName", "")` is not enough. |
 | `Classrooms` | `Classrooms` | ✅ `Id`, `Name`, `Symbol`. |
 | `Lessons` | `Lessons` | ✅ `lesson id → {Subject, Teacher, Class}`. The only way to map `Attendances[].Lesson.Id` to a subject (Attendances carry no subject). |
-| `Grades/Categories` | `Categories` | ✅ `Name`, `Weight`, `CountToTheAverage`. |
+| `Grades/Categories` | `Categories` | ✅ `Name`, `Weight`, `CountToTheAverage`. The parser reads `Weight` as a number or a numeric string (`"2"`, `"1,5"`); anything else (or none) is weight 1. |
 | `Grades/Types` | — | ✅ The complete list of values `Grade` can take (see below). |
 | `Attendances/Types` | `Types` | ✅ Note: **not** top-level `AttendanceTypes`, which returns 404. |
 | `HomeWorks/Categories` | `Categories` | ✅ Agenda categories: Sprawdzian, Kartkówka, Wycieczka, Zebranie z rodzicami, ... (per school). |
@@ -72,7 +77,7 @@ Two things apply to every endpoint:
 | Endpoint | Root key | Notes |
 |---|---|---|
 | `Grades` | `Grades` | ✅ `Grade` (string; `parse_grade_value` reads only the 1-6 scale and ignores anything outside it, e.g. a stray "85"), `Subject.Id`, `Category.Id`, `Semester`, `AddDate`, `IsSemesterProposition`, `IsFinalProposition`, `IsSemester`, `IsFinal`, `Comments` (❓ the four semester/final flags have only ever been `false`: no proposed or final grade issued yet). ✅ `AddedBy.Id` is the teacher who added the grade (a `Users` id): on a real account all 15 grades resolved to the subject's own teacher. 📖 `Improvement.Id` on a correction ("poprawa") points at the earlier grade it improves; the earlier grade stays in the list. |
-| `Grades/Comments` | `Comments` | ✅ `[{"Id", "Text"}]`. `Grades[].Comments` is a list of **ids into this endpoint**, not embedded text. ✅ Real teacher comments on a real account resolve this way. ✅ Each list item is an `{"Id": <int>}` object (checked live 2026-10-09 on 21 commented grades); the parser still accepts a bare id too. |
+| `Grades/Comments` | `Comments` | ✅ `[{"Id", "Text"}]`. `Grades[].Comments` is a list of **ids into this endpoint**, not embedded text. ✅ Real teacher comments on a real account resolve this way. ✅ Each list item is an `{"Id": <int>}` object (checked live 2026-10-09 on 21 commented grades); the parser still accepts a bare id too. `Librus.grades()` fetches this list only when some grade has a comment id (the same goes for the behaviour and descriptive comment lists). |
 | `DescriptiveGrades` | `Grades` | ✅ Grades in skills-based subjects (seen live 2026-10-09: music in grade 1 of a primary school). **The shown grade is `Map`** (`"6"`, same as `RealGradeValue`) - `Grade` holds something else (`3` for that `"6"`), so don't read it as the grade. ❓ `Grade` is almost certainly the grade's **range** on the descriptive scale (`GradeRange` in `DescriptiveGrades/Types`: 1 for 1-2, 2 for 3-4, 3 for 5-6): the `"6"` with `Grade: 3` matches that, but the scale was read from another school than the grade. Also `Subject.Id`, `Lesson.Id`, `Student.Id`, `Skill.Id` (into `DescriptiveGrades/Skills`), `AddedBy.Id` (the teacher), `Date`, `AddDate`, `Semester`, `Comments` (a list of `{"Id"}` into `DescriptiveGrades/Comments`). They don't count towards the average. Only when `Units` enables them. |
 | `DescriptiveGrades/Skills` | `Skills` | ✅ Every skill of the whole school (~1100 entries, ~330 KB; ✅ an empty list at a school with descriptive grades switched on but none given): `Id`, `Name` ("Ekspresja muzyczna. Śpiew" - Synergia shows it as the grade's "Kategoria"), `Subject.Id`, `Weight`, `CountToTheAverage` (false), `Color.Id`, sometimes `Teacher.Id`. Fetch it rarely. |
 | `DescriptiveGrades/Comments` | `Comments` | ✅ The teacher's comments (seen live 2026-10-09): `Id`, `Text`, `AddedBy.Id`, `Grade.Id` (the descriptive grade) - same shape as `Grades/Comments`. |
@@ -80,7 +85,7 @@ Two things apply to every endpoint:
 | `DescriptiveGrades/Phrases` | `Phrases` | ✅ The school's bank of ready-made comment phrases (6403 entries on the tested school): `Id`, `Content`, `ClassLevel`, `GradeRange` (1-3, as in `Types`), `Skill.Id`. Not tied to a student. |
 | `DescriptiveGrades/SubjectCompetences` | `SubjectCompetences` | ✅ `Id`, `Name` (3 entries on the tested school). |
 | `DescriptiveGrades/Text` | - | ✅ 404 `NotFound`, although `DescriptiveGrades` lists it in `Resources`. |
-| `PointGrades` | `Grades` | ✅ Reachable, empty on tested accounts (their school has `PointGradesEnabled: false`). 📖 `Grade` (the text shown), `GradeValue` (the points), `Category.Id`, `Subject.Id`, `Semester`, `AddDate`, `AddedBy.Id`. The maximum lives on the category. Parsed by `parse_point_grades`; `point_grades_percentage` gives the weighted earned/possible percentage. |
+| `PointGrades` | `Grades` | ✅ Reachable, empty on tested accounts (their school has `PointGradesEnabled: false`). 📖 `Grade` (the text shown), `GradeValue` (the points), `Category.Id`, `Subject.Id`, `Semester`, `AddDate`, `AddedBy.Id`. The maximum lives on the category. Parsed by `parse_point_grades`; `point_grades_percentage` gives the weighted earned/possible percentage. `Librus.point_grades()` doesn't ask at all when `Units` says `PointGradesEnabled: false`, and fetches the categories only when there are grades. |
 | `PointGrades/Categories` | `Categories` | 📖 `Name`, `Weight`, `CountToTheAverage`, `ValueFrom`, `ValueTo` (the maximum points). |
 | `TextGrades` | — | ✅ Reachable, empty on tested accounts. |
 | `BaseTextGrades` | `Grades` | ✅ **Text grades** that `Grades` doesn't contain (one real entry, 2026-09-18): `Grade` (free text; ✅ can contain the teacher's line breaks and indentation, e.g. `"...sesja I\n      80%"` - `parse_text_grades` collapses the whitespace), `Subject.Id`, `Lesson.Id`, `Category.Id` (into `TextGrades/Categories`), `AddedBy.Id`, `Student.Id`, `Date`, `AddDate`, `Semester`, `ShowInGradesView`. szkolny-android reads its "descriptive grades" from here. |

@@ -9,13 +9,14 @@ OAuth password grant szkolny-android documented. Confirmed live on
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date
 from http.cookies import SimpleCookie
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import urljoin
 
 import aiohttp
@@ -82,6 +83,9 @@ from .const import (
     MESSAGES_BOOTSTRAP_URL,
     OAUTH_TOKEN_COOKIE,
     PERSISTED_COOKIE_NAMES,
+    REFRESH_RETRY_AFTER_SECONDS,
+    REQUEST_CONNECT_TIMEOUT_SECONDS,
+    REQUEST_TIMEOUT_SECONDS,
     SANDBOX_DOMAIN,
     SANDBOX_URL,
     SESSION_EXPIRY_SAFETY_MARGIN_SECONDS,
@@ -105,7 +109,38 @@ from .exceptions import (
 )
 from .models import AttachmentFileData
 
+try:  # optional, faster JSON decoding when installed
+    import orjson  # type: ignore[import-not-found, unused-ignore]
+
+    def _json_loads(raw: bytes) -> Any:
+        return orjson.loads(raw)
+
+except ImportError:  # pragma: no cover - depends on the environment
+
+    def _json_loads(raw: bytes) -> Any:
+        return json.loads(raw)
+
+
 _CAPTCHA_MARKERS = ("captcha", "recaptcha", "g-recaptcha", "hcaptcha")
+
+# What a request can fail with besides an HTTP status: aiohttp's own errors
+# and a timeout (aiohttp's `ClientTimeout` raises a bare `TimeoutError`,
+# which is not an `aiohttp.ClientError`).
+_NETWORK_ERRORS = (aiohttp.ClientError, TimeoutError)
+
+# Default timeout of data and login requests (see `LibrusApiClient`).
+DEFAULT_REQUEST_TIMEOUT = aiohttp.ClientTimeout(
+    total=REQUEST_TIMEOUT_SECONDS, sock_connect=REQUEST_CONNECT_TIMEOUT_SECONDS
+)
+
+# HTTP statuses that mean "try again later", not a broken request: 503 is
+# Librus's maintenance answer; 502/504 come from a gateway in front of it;
+# 429 is rate limiting.
+_RETRY_LATER_STATUSES = (429, 502, 503, 504)
+
+# Largest error body read before raising, so the connection can be reused
+# (a bigger or unknown-length one is left and the connection closed).
+_ERROR_BODY_LIMIT = 64 * 1024
 
 
 @dataclass(slots=True)
@@ -137,8 +172,15 @@ class LibrusApiClient:
 
     The password is never stored - pass it to `async_login` /
     `async_ensure_session_valid` whenever a (re)login may be needed. A
-    session lasts roughly a day and there is no refresh token, so
-    unattended long-running use needs the password available.
+    session lasts roughly a day; `/refreshToken` can extend it, but a
+    password login is still needed when that stops working, so unattended
+    long-running use needs the password available.
+
+    `request_timeout` limits each data and login request (default 30 s in
+    all, 10 s to connect); pass None to use the session's own timeout. File
+    downloads aren't limited by it - they have their own overall deadline
+    (`DOWNLOAD_TIMEOUT_SECONDS`). Every network error and timeout is raised
+    as `LibrusConnectionError`.
     """
 
     def __init__(
@@ -147,15 +189,32 @@ class LibrusApiClient:
         username: str,
         *,
         on_session_update: OnSessionUpdate | None = None,
+        request_timeout: aiohttp.ClientTimeout | None = DEFAULT_REQUEST_TIMEOUT,
     ) -> None:
         self._session = session
         self._username = username
         self._on_session_update = on_session_update
         self._logged_in_at: float = 0.0
+        self._login_count = 0
+        # Monotonic time of the last failed `refreshToken` (see
+        # `REFRESH_RETRY_AFTER_SECONDS`).
+        self._refresh_failed_at: float | None = None
+        # Passing `timeout=None` to aiohttp would mean "no timeout at all",
+        # so the keyword is left out entirely when there's none to give.
+        self._timeout: dict[str, Any] = (
+            {"timeout": request_timeout} if request_timeout is not None else {}
+        )
 
     @property
     def username(self) -> str:
         return self._username
+
+    @property
+    def login_count(self) -> int:
+        """How many password logins this client has completed. Goes up by
+        one with every successful `async_login` - compare two readings to
+        tell whether someone else logged in meanwhile."""
+        return self._login_count
 
     async def async_close(self) -> None:
         """Release the underlying session (via `detach()`, which also works
@@ -228,6 +287,7 @@ class LibrusApiClient:
         if (
             age is not None
             and age >= SESSION_REFRESH_AFTER_SECONDS
+            and not self._refresh_recently_failed()
             and await self.async_refresh_session()
         ):
             return
@@ -235,12 +295,21 @@ class LibrusApiClient:
             return
         await self.async_login(password)
 
+    def _refresh_recently_failed(self) -> bool:
+        return (
+            self._refresh_failed_at is not None
+            and time.monotonic() - self._refresh_failed_at < REFRESH_RETRY_AFTER_SECONDS
+        )
+
     async def async_refresh_session(self) -> bool:
         """Renew the `oauth_token` cookie without a password login
-        (`synergia.librus.pl/refreshToken`). True when Librus answered 200
-        and the cookie is still there; the session then counts as fresh
-        and is persisted via `on_session_update`. False (never raises) when
-        it didn't work - the caller logs in as usual."""
+        (`synergia.librus.pl/refreshToken`). True only when Librus answered
+        200 **and that answer set a new `oauth_token` cookie**; the session
+        then counts as fresh and is persisted via `on_session_update`. False
+        (never raises - a network error or timeout included) when it didn't
+        work - the caller logs in as usual. After a failure,
+        `async_ensure_session_valid` doesn't try again for
+        `REFRESH_RETRY_AFTER_SECONDS` (30 min)."""
         if self._logged_in_at <= 0:
             return False
         try:
@@ -248,14 +317,19 @@ class LibrusApiClient:
                 SYNERGIA_REFRESH_TOKEN_URL,
                 headers={"User-Agent": USER_AGENT},
                 allow_redirects=False,
+                **self._timeout,
             ) as response:
                 await response.read()
                 status = response.status
-        except aiohttp.ClientError:
+                set_cookie = _response_cookie(response, OAUTH_TOKEN_COOKIE)
+        except _NETWORK_ERRORS:
+            self._refresh_failed_at = time.monotonic()
             return False
         jar_cookies = self._session.cookie_jar.filter_cookies(URL(f"https://{SYNERGIA_DOMAIN}/"))
-        if status != 200 or OAUTH_TOKEN_COOKIE not in jar_cookies:
+        if status != 200 or not set_cookie or OAUTH_TOKEN_COOKIE not in jar_cookies:
+            self._refresh_failed_at = time.monotonic()
             return False
+        self._refresh_failed_at = None
         self._logged_in_at = time.time()
         if self._on_session_update is not None:
             result = self._on_session_update(self._export_session())
@@ -267,30 +341,60 @@ class LibrusApiClient:
         """Run the full login handshake (portalRodzina -> Authorization form
         POST -> manual redirect chain), confirming a session cookie was set.
 
-        Raises one of this library's exceptions on failure. On success,
-        persists the resulting cookies via `on_session_update` (if set) and
-        returns them too.
+        Raises one of this library's exceptions on failure (a network error
+        or a timeout as `LibrusConnectionError`). A failed login also marks
+        the session as not logged in (`is_session_valid()` is False until
+        the next successful login), since it may have replaced some of the
+        old session's cookies. On success, persists the resulting cookies
+        via `on_session_update` (if set) and returns them too.
         """
         try:
-            resp = await self._session.get(SYNERGIA_PORTAL_LOGIN_URL, allow_redirects=False)
-            authorization_url = resp.headers.get("Location")
+            await self._async_login_handshake(password)
+        except BaseException:
+            self._logged_in_at = 0.0
+            raise
+
+        self._logged_in_at = time.time()
+        self._login_count += 1
+        self._refresh_failed_at = None
+        session_data = self._export_session()
+        if self._on_session_update is not None:
+            result = self._on_session_update(session_data)
+            if result is not None:
+                await result
+        return session_data
+
+    async def _async_login_handshake(self, password: str) -> None:
+        get = self._session.get
+        try:
+            async with get(
+                SYNERGIA_PORTAL_LOGIN_URL, allow_redirects=False, **self._timeout
+            ) as resp:
+                authorization_url = resp.headers.get("Location")
+                await resp.read()
+                if resp.status in _RETRY_LATER_STATUSES:
+                    _raise_retry_later(resp.status, SYNERGIA_PORTAL_LOGIN_URL)
             if not authorization_url:
                 raise LibrusUnexpectedResponseError(
                     "Login step 1 (portalRodzina) returned no redirect Location."
                 )
 
-            # Sets API-side session cookies; the response body isn't used.
-            await self._session.get(authorization_url, allow_redirects=False)
+            # Sets API-side session cookies; the body is read only to free
+            # the connection.
+            async with get(authorization_url, allow_redirects=False, **self._timeout) as resp:
+                await resp.read()
 
             data = {"action": "login", "login": self._username, "pass": password}
-            resp = await self._session.post(
-                API_OAUTH_AUTHORIZATION_URL, data=data, headers=LOGIN_HEADERS
-            )
-            text = await resp.text()
+            async with self._session.post(
+                API_OAUTH_AUTHORIZATION_URL, data=data, headers=LOGIN_HEADERS, **self._timeout
+            ) as resp:
+                text = await _body_text(resp)
+                if resp.status in _RETRY_LATER_STATUSES:
+                    _raise_retry_later(resp.status, API_OAUTH_AUTHORIZATION_URL)
             self._raise_if_captcha(text, "login form response")
             try:
-                login_response = await resp.json(content_type=None)
-            except (aiohttp.ContentTypeError, ValueError) as err:
+                login_response = json.loads(text.lstrip("\ufeff"))
+            except ValueError as err:
                 raise LibrusUnexpectedResponseError(
                     f"Login response wasn't JSON: {text[:200]!r}"
                 ) from err
@@ -302,31 +406,24 @@ class LibrusApiClient:
 
             current_url = urljoin(API_OAUTH_AUTHORIZATION_WITH_SCOPE_URL, go_to)
             for _ in range(MAX_OAUTH_REDIRECTS):
-                resp = await self._session.get(current_url, allow_redirects=False)
-                text = await resp.text()
+                async with get(current_url, allow_redirects=False, **self._timeout) as resp:
+                    text = await _body_text(resp)
+                    location = resp.headers.get("Location")
+                    response_url = str(resp.url)
                 self._raise_if_captcha(text, "OAuth redirect chain")
-                location = resp.headers.get("Location")
                 if not location:
                     break
-                current_url = urljoin(str(resp.url), location)
+                current_url = urljoin(response_url, location)
             else:
                 raise LibrusUnexpectedResponseError("OAuth redirect chain exceeded the hop limit.")
-        except aiohttp.ClientError as err:
-            raise LibrusConnectionError(str(err)) from err
+        except _NETWORK_ERRORS as err:
+            raise _connection_error(err) from err
 
         jar_cookies = self._session.cookie_jar.filter_cookies(URL(f"https://{SYNERGIA_DOMAIN}/"))
         if OAUTH_TOKEN_COOKIE not in jar_cookies:
             raise LibrusUnexpectedResponseError(
                 "Login appeared to finish but no oauth_token session cookie was set."
             )
-
-        self._logged_in_at = time.time()
-        session_data = self._export_session()
-        if self._on_session_update is not None:
-            result = self._on_session_update(session_data)
-            if result is not None:
-                await result
-        return session_data
 
     @staticmethod
     def _raise_if_captcha(text: str, where: str) -> None:
@@ -381,12 +478,11 @@ class LibrusApiClient:
             send = self._session.post if method == "POST" else self._session.get
             extra: dict[str, Any] = {"json": json_body} if json_body is not None else {}
             async with send(
-                url, headers={"User-Agent": USER_AGENT}, params=params, **extra
+                url, headers={"User-Agent": USER_AGENT}, params=params, **extra, **self._timeout
             ) as response:
-                if response.status == 503:
-                    raise LibrusServerMaintenanceError(
-                        f"Librus is under maintenance (HTTP 503) on {url}."
-                    )
+                if response.status in _RETRY_LATER_STATUSES:
+                    await _drain_small_body(response)
+                    _raise_retry_later(response.status, url)
                 if response.status in (401, 403):
                     # BUG FIX (code review): this check used to run AFTER
                     # `_async_read_json` below, which JSON-parses the body
@@ -428,6 +524,7 @@ class LibrusApiClient:
                             "(HTTP 401 Insufficient scopes).",
                             status_code=401,
                         )
+                    await _drain_small_body(response)
                     raise LibrusSessionExpiredError(
                         f"Session rejected on {url} (HTTP {response.status}).",
                         status_code=response.status,
@@ -440,24 +537,32 @@ class LibrusApiClient:
                         f"HTTP {response.status} from {url}: {payload!r}",
                         status_code=response.status,
                     )
-        except aiohttp.ClientError as err:
-            raise LibrusConnectionError(str(err)) from err
+        except _NETWORK_ERRORS as err:
+            raise _connection_error(err) from err
         return payload
 
     @staticmethod
     async def _async_read_json(
         response: aiohttp.ClientResponse, *, array_envelope_key: str | None = None
     ) -> dict[str, Any]:
+        raw = await response.read()
         try:
-            data = await response.json(content_type=None)
-        except (aiohttp.ContentTypeError, ValueError) as err:
-            text = await response.text()
-            # An error page (e.g. a 404 for a mailbox this account doesn't
-            # have) keeps its status so callers can tell it apart.
-            raise LibrusUnexpectedResponseError(
-                f"Non-JSON response (HTTP {response.status}): {text[:200]!r}",
-                status_code=response.status if response.status >= 400 else None,
-            ) from err
+            # Bytes straight to the JSON decoder (UTF-8/16/32 are detected),
+            # without decoding to text first.
+            data = _json_loads(raw)
+        except ValueError:
+            # Not UTF-8 JSON: try once more as text in the charset the
+            # response names (what aiohttp's `json()` used to do).
+            text = await _body_text(response)
+            try:
+                data = json.loads(text)
+            except ValueError as err:
+                # An error page (e.g. a 404 for a mailbox this account
+                # doesn't have) keeps its status so callers can tell it apart.
+                raise LibrusUnexpectedResponseError(
+                    f"Non-JSON response (HTTP {response.status}): {text[:200]!r}",
+                    status_code=response.status if response.status >= 400 else None,
+                ) from err
         if isinstance(data, list):
             # CONFIRMED live (2026-09-06): at least one Wiadomości mailbox's
             # list endpoint ("substitutions" and/or "alerts") returns a
@@ -739,43 +844,48 @@ class LibrusApiClient:
         `parsers.parse_student_number` (a fallback; the class register number
         is in JSON via `async_get_user`). A redirect (to the login page) or a
         401/403 means the session is gone, same as on an API endpoint."""
+        url = SYNERGIA_STUDENT_INFO_URL
         try:
             async with self._session.get(
-                SYNERGIA_STUDENT_INFO_URL,
-                headers={"User-Agent": USER_AGENT},
-                allow_redirects=False,
+                url, headers={"User-Agent": USER_AGENT}, allow_redirects=False, **self._timeout
             ) as response:
                 if response.status in (301, 302, 303, 307, 401, 403):
+                    await _drain_small_body(response)
                     raise LibrusSessionExpiredError(
-                        f"Session rejected on {SYNERGIA_STUDENT_INFO_URL} (HTTP {response.status}).",
+                        f"Session rejected on {url} (HTTP {response.status}).",
                         status_code=response.status,
                     )
-                if response.status == 503:
-                    raise LibrusServerMaintenanceError(
-                        f"Librus is under maintenance (HTTP 503) on {SYNERGIA_STUDENT_INFO_URL}."
-                    )
+                if response.status in _RETRY_LATER_STATUSES:
+                    await _drain_small_body(response)
+                    _raise_retry_later(response.status, url)
                 if response.status != 200:
+                    await _drain_small_body(response)
                     raise LibrusUnexpectedResponseError(
-                        f"HTTP {response.status} from {SYNERGIA_STUDENT_INFO_URL}."
+                        f"HTTP {response.status} from {url}.", status_code=response.status
                     )
-                return await response.text()
-        except aiohttp.ClientError as err:
-            raise LibrusConnectionError(str(err)) from err
+                return await _body_text(response)
+        except _NETWORK_ERRORS as err:
+            raise _connection_error(err) from err
 
     async def async_bootstrap_messages(self) -> bool:
         """One-time-per-login bootstrap for the Wiadomości subsystem.
 
         Returns False (not an error) if this account's school doesn't have
         the messages module enabled - some don't. Caller decides how often
-        to call this (`Librus` does it once per login); this method does no caching.
+        to call this (`Librus` does it after every password login, and once
+        more when the Wiadomości session alone was rejected); this method
+        does no caching.
         """
         try:
             async with self._session.get(
-                MESSAGES_BOOTSTRAP_URL, headers={"User-Agent": USER_AGENT}
+                MESSAGES_BOOTSTRAP_URL, headers={"User-Agent": USER_AGENT}, **self._timeout
             ) as response:
-                text = await response.text()
-        except aiohttp.ClientError as err:
-            raise LibrusConnectionError(str(err)) from err
+                if response.status in _RETRY_LATER_STATUSES:
+                    await _drain_small_body(response)
+                    _raise_retry_later(response.status, MESSAGES_BOOTSTRAP_URL)
+                text = await _body_text(response)
+        except _NETWORK_ERRORS as err:
+            raise _connection_error(err) from err
         self._raise_if_captcha(text, "messages bootstrap")
         return MESSAGES_ACCESS_DENIED_MARKER not in text
 
@@ -931,19 +1041,19 @@ class LibrusApiClient:
         """The sandbox link a Synergia download page redirects to."""
         try:
             async with self._session.get(
-                url, headers={"User-Agent": USER_AGENT}, allow_redirects=False
+                url, headers={"User-Agent": USER_AGENT}, allow_redirects=False, **self._timeout
             ) as response:
                 status = response.status
                 location = response.headers.get("Location")
                 body = await _body_text(response)
-        except aiohttp.ClientError as err:
-            raise LibrusConnectionError(str(err)) from err
+        except _NETWORK_ERRORS as err:
+            raise _connection_error(err) from err
         if status in (401, 403):
             raise LibrusSessionExpiredError(
                 f"Session rejected on {url} (HTTP {status}).", status_code=status
             )
-        if status == 503:
-            raise LibrusServerMaintenanceError(f"Librus is under maintenance (HTTP 503) on {url}.")
+        if status in _RETRY_LATER_STATUSES:
+            _raise_retry_later(status, url)
         if status == 200 and not location:
             # Found live (2026-10-09): Synergia's web session (DZIENNIKSID)
             # can die while the API session still works - the page then
@@ -1000,8 +1110,8 @@ class LibrusApiClient:
                         return _file_data(response, body, fallback_name)
                 if attempt + 1 < max_wait_attempts:
                     await asyncio.sleep(2)
-        except aiohttp.ClientError as err:
-            raise LibrusConnectionError(str(err)) from err
+        except _NETWORK_ERRORS as err:
+            raise _connection_error(err, fallback_name) from err
         raise LibrusUnexpectedResponseError(f"{fallback_name} wasn't ready to download")
 
     async def _async_fetch_single_use_key_file(
@@ -1050,8 +1160,8 @@ class LibrusApiClient:
                     break
                 if attempt + 1 < max_wait_attempts:
                     await asyncio.sleep(_sandbox_poll_delay(attempt))
-        except aiohttp.ClientError as err:
-            raise LibrusConnectionError(str(err)) from err
+        except _NETWORK_ERRORS as err:
+            raise _connection_error(err, fallback_name) from err
         if status == "not_downloaded_yet":
             raise LibrusUnexpectedResponseError(
                 f"{fallback_name} still wasn't ready after {max_wait_attempts} checks"
@@ -1099,6 +1209,54 @@ async def _with_download_deadline[T](
         raise LibrusConnectionError(
             f"{name}: the connection timed out ({err or type(err).__name__})"
         ) from err
+
+
+def _connection_error(err: BaseException, name: str | None = None) -> LibrusConnectionError:
+    """A network error or a timeout as `LibrusConnectionError` (a bare
+    `TimeoutError` has an empty message, so it says what happened)."""
+    if isinstance(err, TimeoutError):
+        detail = f"the connection timed out ({err or type(err).__name__})"
+    else:
+        detail = str(err) or type(err).__name__
+    return LibrusConnectionError(f"{name}: {detail}" if name else detail)
+
+
+def _raise_retry_later(status: int, url: str) -> NoReturn:
+    """Raise for a status in `_RETRY_LATER_STATUSES`: 503 is maintenance
+    (`LibrusServerMaintenanceError`), the others `LibrusConnectionError`;
+    both carry `status_code`."""
+    if status == 503:
+        raise LibrusServerMaintenanceError(
+            f"Librus is under maintenance (HTTP 503) on {url}.", status_code=503
+        )
+    reason = "too many requests" if status == 429 else "gateway error"
+    raise LibrusConnectionError(f"HTTP {status} ({reason}) from {url}.", status_code=status)
+
+
+async def _drain_small_body(response: aiohttp.ClientResponse) -> None:
+    """Read a small error body (up to `_ERROR_BODY_LIMIT`) before raising,
+    so aiohttp can put the connection back in its pool instead of closing
+    it. A bigger body (or one that fails to read) is left alone."""
+    try:
+        length = response.content_length
+        if length is not None:
+            if length <= _ERROR_BODY_LIMIT:
+                await response.read()
+            return
+        content = getattr(response, "content", None)
+        if isinstance(content, aiohttp.StreamReader):
+            await content.read(_ERROR_BODY_LIMIT)
+    except (*_NETWORK_ERRORS, ValueError):
+        pass
+
+
+def _response_cookie(response: aiohttp.ClientResponse, name: str) -> str | None:
+    """The value of cookie `name` set by this very response (`Set-Cookie`),
+    or None when it set none (or an empty one)."""
+    cookies = getattr(response, "cookies", None)
+    if not cookies or name not in cookies:
+        return None
+    return cookies[name].value or None
 
 
 async def _body_text(response: aiohttp.ClientResponse) -> str:

@@ -143,3 +143,52 @@ def test_seen_ids_survive_json_round_trip() -> None:
     changes = restored.update(_data(grades=[_grade(1), _grade(2)], messages=[message]), today=TODAY)
     assert [g.id for g in changes.grades] == [2]
     assert not changes.messages
+
+
+def test_failed_kind_is_not_seeded_and_is_seeded_silently_later() -> None:
+    """A first fetch whose grades failed must not seed grades as "nothing":
+    the grades that show up next time are recorded, not reported."""
+    tracker = ChangeTracker()
+    tracker.update(_data(failed_sections={"grades"}), today=TODAY)
+    assert tracker.seen.seeded is not None and "grades" not in tracker.seen.seeded
+    assert "notes" in tracker.seen.seeded
+
+    changes = tracker.update(_data(grades=[_grade(1), _grade(2)]), today=TODAY)
+    assert not changes.grades
+    changes = tracker.update(_data(grades=[_grade(1), _grade(2), _grade(3)]), today=TODAY)
+    assert [g.id for g in changes.grades] == [3]
+
+
+def test_failed_kind_is_skipped_once_seeded() -> None:
+    tracker = ChangeTracker()
+    tracker.update(_data(grades=[_grade(1)]), today=TODAY)
+    # Grades failed this time: nothing reported, nothing forgotten.
+    assert not tracker.update(_data(failed_sections={"grades"}), today=TODAY).grades
+    changes = tracker.update(_data(grades=[_grade(1), _grade(2)]), today=TODAY)
+    assert [g.id for g in changes.grades] == [2]
+
+
+def test_absences_need_both_attendances_and_their_types() -> None:
+    tracker = ChangeTracker()
+    tracker.update(_data(failed_sections={"attendance_types"}), today=TODAY)
+    assert not tracker.seen.is_kind_seeded("absences")
+    absent = AttendanceData(
+        id=5, lesson_id=None, lesson_no=1, date="2026-09-28", semester=1, type_id=1
+    )
+    assert not tracker.update(_data(attendances=[absent]), today=TODAY).absences
+
+
+def test_old_saved_ids_count_as_seeded_for_every_kind() -> None:
+    """A dict saved before `seeded` existed: every kind is seeded."""
+    tracker = ChangeTracker(SeenIds.from_dict({"grades": ["1"]}))
+    changes = tracker.update(_data(grades=[_grade(1), _grade(2)]), today=TODAY)
+    assert [g.id for g in changes.grades] == [2]
+    assert "seeded" not in SeenIds.from_dict({"grades": ["1"]}).to_dict()
+
+
+def test_seeded_kinds_survive_json_round_trip() -> None:
+    tracker = ChangeTracker()
+    tracker.update(_data(failed_sections={"messages"}), today=TODAY)
+    restored = SeenIds.from_dict(json.loads(json.dumps(tracker.seen.to_dict())))
+    assert restored.seeded == tracker.seen.seeded
+    assert not restored.is_kind_seeded("messages")
