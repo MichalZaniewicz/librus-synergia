@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.14
 
 ### Added
 - **The school's own `+` and `-` values.** `Librus.grading_system()` /
