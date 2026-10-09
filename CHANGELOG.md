@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.9
 
 ### Added
 - **Homework attachments:** `HomeworkAssignmentData.attachments` (from
