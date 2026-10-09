@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.10
 
 ### Fixed
 - **Homework attachment download** now works (confirmed live with a real
