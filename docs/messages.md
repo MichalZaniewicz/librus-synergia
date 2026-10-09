@@ -15,8 +15,12 @@ Run this with the main session cookies. It sets the cookies for
 - ✅ If the body contains **`Brak dostępu`**, the school has no messages
   module. That is a normal outcome, not an error.
 - ✅ The messages session **expires independently of the main session,
-  and much more often** (sometimes within the hour). On any failure
-  except a 404 (no such mailbox), bootstrap again and retry once.
+  and much more often** (sometimes within the hour). When the session is
+  rejected (401/403) or another HTTP error status comes back - except a
+  404 (no such mailbox) - `Librus` logs in, bootstraps again and retries
+  once. A network error or timeout, and an answer without an error status
+  that isn't what was expected (not JSON, a failed download), are raised
+  as they are: a fresh login doesn't change them.
 
 ## Endpoints
 
@@ -83,6 +87,11 @@ without opening the message:
 
 The attachment ids still come from the single-message response, so getting
 them for an **unread** message would mark it read. `Librus.download_attachment`
-does steps 1-3. It only follows a `downloadLink` on `sandbox.librus.pl`
-(anything else is `LibrusUnexpectedResponseError`), and gives up with
-`LibrusConnectionError` after 150 s (`DOWNLOAD_TIMEOUT_SECONDS`).
+does steps 1-3. It only follows an `https://sandbox.librus.pl/...`
+`downloadLink` (anything else, or a link that isn't a valid URL, is
+`LibrusUnexpectedResponseError`), and gives up with `LibrusConnectionError`
+after 150 s (`DOWNLOAD_TIMEOUT_SECONDS`) - the whole call, a fresh login and
+retry included. It logs in and bootstraps Wiadomości again once only when
+the session was rejected (or an HTTP error status came back); a timeout or
+an odd answer (a link outside the sandbox, a failed download) is raised
+straight away.

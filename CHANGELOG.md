@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **A download page answering 200 without a redirect is an expired session
+  again**, unless it plainly says the file isn't there ("nie znaleziono",
+  "nie istnieje", "not found") and isn't the logged-out page. A download is
+  started by a person, so a wrong guess costs one login. The page is now read
+  in the charset it names, with ASCII-only markers, so an odd encoding
+  doesn't hide "Brak dostępu".
+- **A message attachment download no longer logs in again after a timeout or
+  an odd answer.** `Librus.download_attachment` (and every Wiadomości call)
+  retries with a fresh login only when the session was rejected or an HTTP
+  error status came back - not on a network error, the download deadline, or
+  an answer without an error status (a failed download key, a link outside
+  the sandbox, a body that isn't JSON).
+- **The 150 s download deadline now covers the whole `Librus` call** -
+  logins and a retry included - for message attachments, homework files and
+  school documents.
+- **"Insufficient scopes" is only recognised on the data gateway**, and a
+  401 whose body can't be read (a cut-off connection, a timeout, a body over
+  64 KB) stays an expired session.
+- **Invalid links no longer escape as `ValueError`.** A redirect or a
+  `downloadLink` that isn't a valid URL is `LibrusUnexpectedResponseError`,
+  and a message attachment's `downloadLink` must be `https`.
+- **`parse_partial_grades` ignores a bool** given as `subjectId` or as the
+  scale value (`True` is not subject 1 or the grade "True").
+
+### Changed
+- **`async_download_school_file` raises `LibrusUnexpectedResponseError`**
+  (was `ValueError`) for a path that isn't on `https://synergia.librus.pl`
+  or isn't a valid URL - still before any request. Catch `LibrusError`
+  instead of `ValueError`.
+- **Refusals are remembered for a day, not for good.**
+  `Librus.partial_grades()` asks again 24 h after a 403/404/405 (or
+  "Insufficient scopes"); `Librus.student_identifier()` now also remembers
+  such a refusal of its lookup for 24 h; `Librus.grading_system()` returns
+  the defaults on such a refusal and asks again after 24 h (other errors are
+  still raised). The `Auth/Subjects` lookup for partial grades is kept for
+  24 h instead of being fetched every time.
+- Download timeouts say whether the library's own deadline or aiohttp's
+  timeout fired.
+
 ## 0.3.16
 
 ### Fixed

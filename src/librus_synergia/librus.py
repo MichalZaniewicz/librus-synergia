@@ -13,6 +13,7 @@ Librus drops the session early, and bootstrapping the separate Wiadomości
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from datetime import date, timedelta
 from functools import partial
@@ -22,7 +23,7 @@ from typing import Any, TypeVar
 import aiohttp
 
 from . import parsers
-from .client import LibrusApiClient, LibrusSessionData, OnSessionUpdate
+from .client import LibrusApiClient, LibrusSessionData, OnSessionUpdate, _with_download_deadline
 from .exceptions import LibrusError, LibrusSessionExpiredError, LibrusUnexpectedResponseError
 from .models import (
     AttachmentFileData,
@@ -57,6 +58,31 @@ from .models import (
 )
 
 T = TypeVar("T")
+
+# How long a definite "not available to this account" answer (and the
+# `Auth/Subjects` lookup) is kept before asking Librus again.
+RECHECK_SECONDS = 24 * 3600
+
+
+def _now() -> float:
+    """Monotonic clock for the caches below (a function so tests can move it)."""
+    return time.monotonic()
+
+
+def _is_refusal(err: LibrusError) -> bool:
+    """Whether Librus definitely refused a module for this account: a 403,
+    or a 401 "Insufficient scopes" / 404 / 405 (`LibrusUnexpectedResponseError`).
+    A network error, a 5xx or a dead session is not a refusal."""
+    if isinstance(err, LibrusSessionExpiredError):
+        return err.status_code == 403
+    if isinstance(err, LibrusUnexpectedResponseError):
+        return err.status_code in (401, 403, 404, 405)
+    return False
+
+
+def _fresh(at: float | None) -> bool:
+    """Whether a cache entry stamped at `at` is younger than `RECHECK_SECONDS`."""
+    return at is not None and _now() - at < RECHECK_SECONDS
 
 
 def week_start_of(day: date) -> date:
@@ -100,12 +126,19 @@ class Librus:
         self._kindergarten_checked = False
         # The child's LID for the new descriptive grading (see
         # `student_identifier`), and whether that module answers at all.
+        # A refusal is kept for `RECHECK_SECONDS` (the time it was seen).
         self._student_identifier_lock = asyncio.Lock()
         self._student_identifier: str | None = None
         self._student_identifier_checked = False
-        self._partial_grades_unavailable = False
-        # A static school setting - read once per instance.
+        self._student_identifier_refused_at: float | None = None
+        self._partial_grades_unavailable_at: float | None = None
+        # Subject LID -> subject id (`Auth/Subjects`), refreshed daily.
+        self._auth_subjects: dict[str, int] | None = None
+        self._auth_subjects_at: float | None = None
+        # A static school setting - read once per instance (a refusal keeps
+        # the default for `RECHECK_SECONDS`).
         self._grading_system: GradingSystemData | None = None
+        self._grading_system_refused_at: float | None = None
         self._kindergarten_lid: str | None = None
         self._kindergarten_group_id: str | None = None
 
@@ -172,8 +205,13 @@ class Librus:
     async def _call_messages(self, fetch: Callable[[], Awaitable[T]]) -> T | None:
         """Like `_call`, for the separate Wiadomości session. Returns None
         when the school has no messages module. The Wiadomości session dies
-        independently (and more often) than the main one, so a failure gets
-        one fresh bootstrap + retry."""
+        independently (and more often) than the main one, so a rejected
+        session (`LibrusSessionExpiredError`) or an HTTP error status gets
+        one fresh login + bootstrap + retry. A network error or timeout
+        (including a download's deadline), a 404 and an odd answer without
+        an error status (not JSON, a link outside the sandbox, a failed
+        download key) are raised as they are - a fresh login can't fix
+        them."""
         await self.login()
         for attempt in range(2):
             if self._messages_available is None:
@@ -182,20 +220,18 @@ class Librus:
                 return None
             try:
                 return await fetch()
-            except LibrusUnexpectedResponseError as err:
-                # A 404 means "no such mailbox for this account" (confirmed
-                # live for substitutions/alerts), not a dead session.
-                # A 401 here is "Insufficient scopes" (see the client) - a
-                # fresh login can't change that either.
-                if err.status_code in (401, 404) or attempt:
-                    raise
-                self._messages_available = None
-                await self.login(force=True)
-            except LibrusError:
+            except LibrusSessionExpiredError:
                 if attempt:
                     raise
-                self._messages_available = None
-                await self.login(force=True)
+            except LibrusUnexpectedResponseError as err:
+                # A 404 means "no such mailbox for this account" (confirmed
+                # live for substitutions/alerts), not a dead session. A 401
+                # "Insufficient scopes" (only raised for the data gateway)
+                # can't change with a fresh login either.
+                if err.status_code is None or err.status_code in (401, 404) or attempt:
+                    raise
+            self._messages_available = None
+            await self.login(force=True)
         return None  # pragma: no cover - loop always returns or raises
 
     # ------------------------------------------------------------------
@@ -414,20 +450,26 @@ class Librus:
         """The child's LID (`Auth/UserInfo/<token user>` ->
         `IdentifierOfStudentAssignedWithUser`); None when Librus doesn't
         give one. The answer is kept for this instance once Librus has
-        actually answered both lookups; a failed lookup (network, 5xx, ...)
-        is tried again on the next call."""
+        actually answered both lookups. A definite refusal (403, 404, 405 or
+        a 401 "Insufficient scopes") is kept for a day (`RECHECK_SECONDS`);
+        a failed lookup (network, 5xx, ...) is tried again on the next
+        call. Never raises a `LibrusError`."""
         async with self._student_identifier_lock:
             if self._student_identifier_checked:
                 return self._student_identifier
-            token_info = await self._try(self.client.async_get_token_info)
-            if token_info is None:
+            if _fresh(self._student_identifier_refused_at):
                 return None
-            token_lid = parsers.extract_token_user_identifier(token_info)
-            if token_lid:
-                user_info = await self._try(lambda: self.client.async_get_user_info(token_lid))
-                if user_info is None:
-                    return None
-                self._student_identifier = parsers.extract_student_identifier(user_info)
+            try:
+                token_info = await self._call(self.client.async_get_token_info)
+                token_lid = parsers.extract_token_user_identifier(token_info)
+                if token_lid:
+                    user_info = await self._call(lambda: self.client.async_get_user_info(token_lid))
+                    self._student_identifier = parsers.extract_student_identifier(user_info)
+            except LibrusError as err:
+                if _is_refusal(err):
+                    self._student_identifier_refused_at = _now()
+                return None
+            self._student_identifier_refused_at = None
             self._student_identifier_checked = True
             return self._student_identifier
 
@@ -437,41 +479,58 @@ class Librus:
         see `parsers.parse_partial_grades`. Empty when Librus has none or
         no child LID is known. When the module isn't available to this
         account (HTTP 401 "Insufficient scopes", 403, 404 or 405), that is
-        remembered and this instance doesn't ask again."""
-        if self._partial_grades_unavailable:
+        remembered and this instance asks again only after a day
+        (`RECHECK_SECONDS`). The `Auth/Subjects` lookup is kept for a day
+        too."""
+        if _fresh(self._partial_grades_unavailable_at):
             return []
         student = await self.student_identifier()
         if not student:
             return []
         try:
             payload = await self._call(lambda: self.client.async_get_partial_grades(student))
-        except (LibrusSessionExpiredError, LibrusUnexpectedResponseError) as err:
+        except LibrusError as err:
             # `_call` already retried a real 401 once; a 403 or an
             # "Insufficient scopes" 401 means the module isn't there.
-            unavailable = (
-                err.status_code == 403
-                if isinstance(err, LibrusSessionExpiredError)
-                else err.status_code in (401, 403, 404, 405)
-            )
-            if not unavailable:
+            if not _is_refusal(err):
                 raise
-            self._partial_grades_unavailable = True
+            self._partial_grades_unavailable_at = _now()
             return []
+        self._partial_grades_unavailable_at = None
         if not payload.get("data"):
             return []
-        subjects = parsers.parse_auth_subjects(
-            await self._probe(self.client.async_get_auth_subjects)
-        )
-        return parsers.parse_partial_grades(payload, subjects)
+        return parsers.parse_partial_grades(payload, await self._subjects_by_lid())
+
+    async def _subjects_by_lid(self) -> dict[str, int]:
+        """`Auth/Subjects` (subject LID -> subject id), kept for
+        `RECHECK_SECONDS`. A failed lookup gives `{}` and isn't kept."""
+        if self._auth_subjects is None or not _fresh(self._auth_subjects_at):
+            payload = await self._try(self.client.async_get_auth_subjects)
+            if payload is None:
+                return self._auth_subjects or {}
+            self._auth_subjects = parsers.parse_auth_subjects(payload)
+            self._auth_subjects_at = _now()
+        return self._auth_subjects
 
     async def grading_system(self) -> GradingSystemData:
         """The school's grade scale settings ("+" / "-" values, whether 0
         counts). Pass it to `parsers.parse_grade_value`. Read once per
-        instance (a failed read is tried again next time)."""
-        if self._grading_system is None:
-            self._grading_system = parsers.parse_grading_system(
-                await self._call(self.client.async_get_grading_system)
-            )
+        instance (a failed read is tried again next time). When the school
+        refuses it (403, 404, 405 or a 401 "Insufficient scopes"), the
+        defaults (`GradingSystemData()`) are returned and Librus is asked
+        again only after a day (`RECHECK_SECONDS`)."""
+        if self._grading_system is not None:
+            return self._grading_system
+        if _fresh(self._grading_system_refused_at):
+            return GradingSystemData()
+        try:
+            payload = await self._call(self.client.async_get_grading_system)
+        except LibrusError as err:
+            if not _is_refusal(err):
+                raise
+            self._grading_system_refused_at = _now()
+            return GradingSystemData()
+        self._grading_system = parsers.parse_grading_system(payload)
         return self._grading_system
 
     async def point_grades(self) -> list[PointGradeData]:
@@ -615,23 +674,35 @@ class Librus:
         self, attachment_id: str, message_id: str
     ) -> AttachmentFileData | None:
         """Download a message attachment (ids from `message()`), without
-        opening the message. None when the school has no messages module."""
-        return await self._call_messages(
-            lambda: self.client.async_download_message_attachment(attachment_id, message_id)
+        opening the message. None when the school has no messages module.
+        A rejected session gets one fresh login + retry; a timeout or an odd
+        answer doesn't. The whole call, logins and retry included, gives up
+        with `LibrusConnectionError` after `DOWNLOAD_TIMEOUT_SECONDS`."""
+        return await _with_download_deadline(
+            self._call_messages(
+                lambda: self.client.async_download_message_attachment(attachment_id, message_id)
+            ),
+            f"attachment-{attachment_id}",
         )
 
     async def download_homework_attachment(self, attachment_id: str) -> AttachmentFileData:
         """Download a homework-assignment attachment (ids from
         `homework_assignments()[].attachments`). Uses the main Synergia
-        session, not Wiadomości."""
-        return await self._call(
-            lambda: self.client.async_download_homework_attachment(attachment_id)
+        session, not Wiadomości. The whole call, a relogin + retry
+        included, gives up after `DOWNLOAD_TIMEOUT_SECONDS`."""
+        return await _with_download_deadline(
+            self._call(lambda: self.client.async_download_homework_attachment(attachment_id)),
+            f"homework-file-{attachment_id}",
         )
 
     async def download_school_file(self, download_path: str) -> AttachmentFileData:
         """Download a school document (`school_files()[].download_path`).
-        Uses the main Synergia session."""
-        return await self._call(lambda: self.client.async_download_school_file(download_path))
+        Uses the main Synergia session. The whole call, a relogin + retry
+        included, gives up after `DOWNLOAD_TIMEOUT_SECONDS`."""
+        return await _with_download_deadline(
+            self._call(lambda: self.client.async_download_school_file(download_path)),
+            "school-file",
+        )
 
     async def justifications(self) -> list[JustificationData]:
         """Absence justifications the parent submitted, newest first, with

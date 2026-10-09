@@ -3,7 +3,7 @@
 | Status | Where | Meaning | What to do | Exception |
 |---|---|---|---|---|
 | 401 | any data endpoint | ✅ The session died, often before the expected ~24 h. The password is still fine. | Log in again once and retry. `Librus` does this automatically. | `LibrusSessionExpiredError(status_code=401)` |
-| 401 + `Insufficient scopes` | `SchoolInfo`, `Duties`, `WhatsNew`, `Reports`, ... | ✅ The account may not use this endpoint at all. Not a dead session - logging in again doesn't help. | Treat as not available; don't log in again. | `LibrusUnexpectedResponseError(status_code=401)` |
+| 401 + `Insufficient scopes` | `SchoolInfo`, `Duties`, `WhatsNew`, `Reports`, ... | ✅ The account may not use this endpoint at all. Not a dead session - logging in again doesn't help. Only recognised on the data gateway (`/gateway/api/2.0/`); a 401 anywhere else, or one whose body can't be read, stays an expired session. | Treat as not available; don't log in again. `Librus` remembers such a refusal for a day where it matters (child LID, new descriptive grading, `GradingSystem`). | `LibrusUnexpectedResponseError(status_code=401)` |
 | 403 | `Timetables` | ✅ The school hasn't published this class's timetable yet (Synergia's own web UI says "nie został jeszcze opublikowany"), **or** it is a kindergarten account. Logging in again does not help. | Treat as an empty timetable. | `LibrusSessionExpiredError(status_code=403)` |
 | 403 | other endpoints | ✅ The module is not available to this account type (e.g. `Substitutions`, `TeacherFreeDays`, or `Attendances/Types` on a messages-only preschool login). | Treat as empty. | same |
 | 404 | `AttendanceTypes`, some mailboxes | Wrong path, or the mailbox doesn't exist for this account. | — | `LibrusUnexpectedResponseError` |
@@ -15,12 +15,19 @@ attachments):
 
 | Case | Meaning | Exception |
 |---|---|---|
-| The Synergia page answers 200 with its logged-out page ("Brak dostępu" or the login form) instead of redirecting | ✅ The web session died while the API session still works. A fresh login fixes it. | `LibrusSessionExpiredError` |
-| The page answers 200 with any other page, or no redirect at all | Not a session problem (e.g. the file is gone). | `LibrusUnexpectedResponseError` |
+| The Synergia page answers 200 instead of redirecting | ✅ Seen live as the logged-out page ("Brak dostępu"): the web session died while the API session still works. A fresh login fixes it, so any such page counts as an expired session - a download is started by a person, so a wrong guess costs one login. | `LibrusSessionExpiredError(status_code=200)` |
+| The page answers 200 and plainly says the file isn't there ("nie znaleziono", "nie istnieje", "not found") and isn't the logged-out page | Not a session problem. The page is read in the charset it names. | `LibrusUnexpectedResponseError` |
+| The page answers anything else without a redirect | Not a session problem. | `LibrusUnexpectedResponseError` |
 | The page redirects anywhere but `sandbox.librus.pl` | Synergia sends a dead session to its login page. | `LibrusSessionExpiredError` |
-| A message attachment's `downloadLink` isn't on `sandbox.librus.pl` | Not followed. | `LibrusUnexpectedResponseError` |
-| A school document path that isn't on `https://synergia.librus.pl` | Refused before any request, so the session cookies never go elsewhere. | `ValueError` |
-| The whole download took longer than 150 s (`DOWNLOAD_TIMEOUT_SECONDS`) | The sandbox is too slow; try again later. | `LibrusConnectionError` |
+| The redirect (or a message attachment's `downloadLink`) isn't a valid URL | Not followed. | `LibrusUnexpectedResponseError` |
+| A message attachment's `downloadLink` isn't `https://sandbox.librus.pl/...` | Not followed. | `LibrusUnexpectedResponseError` |
+| A school document path that isn't on `https://synergia.librus.pl` (or isn't a valid URL) | Refused before any request, so the session cookies never go elsewhere. | `LibrusUnexpectedResponseError` |
+| The whole download took longer than 150 s (`DOWNLOAD_TIMEOUT_SECONDS`) | The sandbox is too slow; try again later. With `Librus`, the deadline covers the whole call, logins and a retry included. | `LibrusConnectionError` ("wasn't downloaded within ...") |
+| aiohttp's own timeout fired first | The connection stalled. | `LibrusConnectionError` ("the connection timed out") |
+
+`Librus` logs in again (once) when a download meets an expired session,
+never when it times out or gets an odd answer (a failed download key, a
+link outside the sandbox, a body that isn't JSON).
 
 Login failures:
 

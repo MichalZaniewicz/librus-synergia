@@ -204,12 +204,14 @@ def parse_partial_grades(
         ]
         subject_lid = item.get("subjectId")
         # A LID maps through `Auth/Subjects`; a plain (or string) number is
-        # taken as the ordinary subject id.
+        # taken as the ordinary subject id. A bool is neither.
         subject_id = subjects_by_lid.get(subject_lid) if isinstance(subject_lid, str) else None
-        if subject_id is None:
+        if subject_id is None and not isinstance(subject_lid, bool):
             subject_id = as_int(subject_lid)
         teacher = item.get("teacherId") or item.get("addedBy")
         scale_value = scale.get("value")
+        if isinstance(scale_value, bool):
+            scale_value = None
         result.append(
             DescriptiveGradeData(
                 id=f"p{item['gradeId']}",

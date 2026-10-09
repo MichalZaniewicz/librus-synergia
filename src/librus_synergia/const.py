@@ -51,11 +51,18 @@ DOWNLOAD_TIMEOUT_SECONDS = 150
 # Text of a Synergia web page shown to a browser without a logged-in web
 # session (lowercase, matched case-insensitively). Seen live 2026-10-09:
 # `/pliki_szkoly/pobierz/<id>` without a session shows "Brak dostępu"; the
-# login form itself has a password field and a "Zaloguj" button.
-SYNERGIA_LOGGED_OUT_MARKERS = ("brak dostępu", "zaloguj", 'type="password"')
+# login form itself has a password field and a "Zaloguj" button. ASCII only,
+# so a page in another charset (or with odd bytes) still matches.
+SYNERGIA_LOGGED_OUT_MARKERS = ("brak dost", "zaloguj", 'type="password"')
+# Text of a Synergia download page that plainly says the file isn't there
+# (lowercase, ASCII only). A download page answering 200 without a redirect
+# counts as an expired web session unless it says this (and isn't the
+# logged-out page) - see `LibrusApiClient._async_synergia_download_link`.
+SYNERGIA_NOT_FOUND_MARKERS = ("nie znaleziono", "nie istnieje", "not found", "error 404")
 # Body of a 401 for an endpoint this account may not use at all (seen on
 # `SchoolInfo`, `Duties`, `WhatsNew`, `Reports`) - not a dead session, so a
-# fresh login can't fix it (lowercase, matched case-insensitively).
+# fresh login can't fix it (lowercase, matched case-insensitively). Only
+# checked for URLs on the data gateway (`DATA_BASE_URL`).
 INSUFFICIENT_SCOPES_MARKER = "insufficient scopes"
 API_OAUTH_AUTHORIZATION_URL = f"https://api.librus.pl/OAuth/Authorization?client_id={CLIENT_ID}"
 API_OAUTH_AUTHORIZATION_WITH_SCOPE_URL = (

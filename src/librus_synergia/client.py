@@ -89,6 +89,7 @@ from .const import (
     SYNERGIA_DOMAIN,
     SYNERGIA_HOMEWORK_ATTACHMENT_URL,
     SYNERGIA_LOGGED_OUT_MARKERS,
+    SYNERGIA_NOT_FOUND_MARKERS,
     SYNERGIA_PORTAL_LOGIN_URL,
     SYNERGIA_REFRESH_TOKEN_URL,
     SYNERGIA_STUDENT_INFO_URL,
@@ -410,14 +411,17 @@ class LibrusApiClient:
                     # else entirely for a specific endpoint (e.g. Timetables'
                     # "not published yet", not an auth problem at all).
                     #
-                    # Except a 401 whose body says "Insufficient scopes":
-                    # that's an endpoint this account may never use
-                    # (`SchoolInfo`, `Duties`, ...), not a dead session - a
-                    # session error would make callers log in again on every
-                    # poll for nothing.
+                    # Except a 401 on the data gateway whose body says
+                    # "Insufficient scopes": that's an endpoint this account
+                    # may never use (`SchoolInfo`, `Duties`, ...), not a dead
+                    # session - a session error would make callers log in
+                    # again on every poll for nothing. Anything else
+                    # (another host, a body that can't be read) stays a
+                    # dead session.
                     if (
                         response.status == 401
-                        and INSUFFICIENT_SCOPES_MARKER in (await _body_text(response)).lower()
+                        and url.startswith(f"{DATA_BASE_URL}/")
+                        and await _says_insufficient_scopes(response)
                     ):
                         raise LibrusUnexpectedResponseError(
                             f"Not allowed for this account on {url} "
@@ -821,8 +825,11 @@ class LibrusApiClient:
         CONFIRMED live 2026-10-07: `attachments/<id>/messages/<msg>` gives a
         `sandbox.librus.pl/GetFile/...` link; the link itself is an HTML
         waiting page and `<link>/get` the file. The attachment ids come from
-        `async_get_message` (which marks an unread message read). Gives up
-        with `LibrusConnectionError` after `DOWNLOAD_TIMEOUT_SECONDS`."""
+        `async_get_message` (which marks an unread message read). Only an
+        `https://sandbox.librus.pl/` link is followed (anything else, or a
+        link that isn't a valid URL, is `LibrusUnexpectedResponseError`).
+        Gives up with `LibrusConnectionError` after
+        `DOWNLOAD_TIMEOUT_SECONDS`."""
         name = f"attachment-{attachment_id}"
 
         async def download() -> AttachmentFileData:
@@ -835,9 +842,9 @@ class LibrusApiClient:
                 raise LibrusUnexpectedResponseError(
                     f"No download link for attachment {attachment_id}"
                 )
-            if URL(link).host != SANDBOX_DOMAIN:
+            if _link_scheme_and_host(link) != ("https", SANDBOX_DOMAIN):
                 raise LibrusUnexpectedResponseError(
-                    f"Attachment {attachment_id} links outside the sandbox: {link}"
+                    f"Attachment {attachment_id} links outside the sandbox: {link[:200]}"
                 )
             return await self._async_fetch_sandbox_file(
                 link, name, max_wait_attempts=max_wait_attempts
@@ -881,13 +888,16 @@ class LibrusApiClient:
         alone doesn't work in a browser that isn't logged in.
 
         `download_path` must resolve to an `https://synergia.librus.pl/`
-        URL (a path, or a full URL on that host) - anything else raises
-        `ValueError`, so the session cookies never go to another host. Gives
-        up with `LibrusConnectionError` after `DOWNLOAD_TIMEOUT_SECONDS`."""
-        url = urljoin(f"https://{SYNERGIA_DOMAIN}/", download_path)
-        parsed = URL(url)
-        if parsed.scheme != "https" or parsed.host != SYNERGIA_DOMAIN:
-            raise ValueError(f"Not a Synergia download path: {download_path!r}")
+        URL (a path, or a full URL on that host) - anything else (or a path
+        that isn't a valid URL) raises `LibrusUnexpectedResponseError`
+        before any request, so the session cookies never go to another
+        host. Gives up with `LibrusConnectionError` after
+        `DOWNLOAD_TIMEOUT_SECONDS`."""
+        url = _join_link(f"https://{SYNERGIA_DOMAIN}/", download_path)
+        if url is None or _link_scheme_and_host(url) != ("https", SYNERGIA_DOMAIN):
+            raise LibrusUnexpectedResponseError(
+                f"Not a Synergia download path: {download_path[:200]!r}"
+            )
         name = f"school-file-{download_path.rstrip('/').rsplit('/', 1)[-1]}"
         return await _with_download_deadline(
             self._async_download_via_synergia(url, name, max_wait_attempts=max_wait_attempts),
@@ -937,26 +947,36 @@ class LibrusApiClient:
         if status == 200 and not location:
             # Found live (2026-10-09): Synergia's web session (DZIENNIKSID)
             # can die while the API session still works - the page then
-            # answers 200 with its logged-out page instead of redirecting to
-            # the file. A fresh login fixes that, so report it as a dead
-            # session. Any other page (a missing file, an error page) is not
-            # a session problem - a relogin wouldn't help.
-            if _looks_logged_out(body):
-                raise LibrusSessionExpiredError(
-                    f"Session rejected on {url} (HTTP 200 logged-out page).", status_code=status
+            # answers 200 with a page instead of redirecting to the file
+            # (the logged-out page, "Brak dostępu", was seen). A fresh login
+            # fixes that. Downloads are started by a person, so a wrong
+            # guess costs one login: any such page counts as a dead session
+            # unless it plainly says the file isn't there (and isn't the
+            # logged-out page) - a relogin wouldn't help with that one.
+            if _looks_not_found(body) and not _looks_logged_out(body):
+                raise LibrusUnexpectedResponseError(
+                    f"File not found on {url} (HTTP 200 page: {body[:200]!r})"
                 )
-            raise LibrusUnexpectedResponseError(
-                f"No download link on {url} (HTTP 200 page: {body[:200]!r})"
+            raise LibrusSessionExpiredError(
+                f"Session rejected on {url} (HTTP 200 page without a download link).",
+                status_code=status,
             )
         if not location:
             raise LibrusUnexpectedResponseError(
                 f"No download link on {url} (HTTP {status})",
                 status_code=status if status >= 400 else None,
             )
-        link = urljoin(url, location)
+        link = _join_link(url, location)
+        if link is None:
+            raise LibrusUnexpectedResponseError(
+                f"Invalid download link on {url}: {location[:200]!r}"
+            )
         if "CSDownloadFailed" in link:
             raise LibrusUnexpectedResponseError(f"File not found on {url}")
-        if URL(link).host != SANDBOX_DOMAIN:
+        parts = _link_scheme_and_host(link)
+        if parts is None:
+            raise LibrusUnexpectedResponseError(f"Invalid download link on {url}: {link[:200]!r}")
+        if parts[1] != SANDBOX_DOMAIN:
             # Synergia sends a dead session to its login page.
             raise LibrusSessionExpiredError(
                 f"Session rejected on {url} (redirected to {link}).", status_code=status
@@ -1060,24 +1080,52 @@ def _sandbox_poll_delay(attempt: int) -> int:
     return 3 if attempt < 3 else 10
 
 
-async def _with_download_deadline(
-    download: Awaitable[AttachmentFileData], name: str
-) -> AttachmentFileData:
-    """Run one whole file download within `DOWNLOAD_TIMEOUT_SECONDS`, so a
-    slow sandbox can't keep a caller (e.g. an HTTP view) waiting for
-    minutes."""
+async def _with_download_deadline[T](
+    download: Awaitable[T], name: str, deadline: float | None = None
+) -> T:
+    """Run one whole file download within `deadline` seconds (default
+    `DOWNLOAD_TIMEOUT_SECONDS`), so a slow sandbox can't keep a caller (e.g.
+    an HTTP view) waiting for minutes. Both this deadline and a timeout of
+    aiohttp's own (which can surface as a bare `TimeoutError`) become
+    `LibrusConnectionError`, with messages that tell them apart."""
+    seconds = DOWNLOAD_TIMEOUT_SECONDS if deadline is None else deadline
+    timer = asyncio.timeout(seconds)
     try:
-        async with asyncio.timeout(DOWNLOAD_TIMEOUT_SECONDS):
+        async with timer:
             return await download
     except TimeoutError as err:
+        if timer.expired():
+            raise LibrusConnectionError(f"{name} wasn't downloaded within {seconds} s") from err
         raise LibrusConnectionError(
-            f"{name} wasn't downloaded within {DOWNLOAD_TIMEOUT_SECONDS} s"
+            f"{name}: the connection timed out ({err or type(err).__name__})"
         ) from err
 
 
 async def _body_text(response: aiohttp.ClientResponse) -> str:
-    """The response body as text, never failing on odd bytes."""
-    return (await response.read()).decode("utf-8", errors="replace")
+    """The response body as text, in the charset the response names (UTF-8
+    when it names none or an unknown one), never failing on odd bytes."""
+    try:
+        return await response.text(errors="replace")
+    except LookupError:  # an unknown charset name
+        return (await response.read()).decode("utf-8", errors="replace")
+
+
+# Largest 401 body read to look for "Insufficient scopes" (that answer is a
+# short JSON object).
+_SCOPES_BODY_LIMIT = 64 * 1024
+
+
+async def _says_insufficient_scopes(response: aiohttp.ClientResponse) -> bool:
+    """Whether a 401 body says "Insufficient scopes". False (a dead session,
+    then) when the body is too large or can't be read."""
+    length = response.content_length
+    if length is not None and length > _SCOPES_BODY_LIMIT:
+        return False
+    try:
+        body = await _body_text(response)
+    except (aiohttp.ClientError, TimeoutError):
+        return False
+    return INSUFFICIENT_SCOPES_MARKER in body[:_SCOPES_BODY_LIMIT].lower()
 
 
 def _looks_logged_out(body: str) -> bool:
@@ -1085,6 +1133,31 @@ def _looks_logged_out(body: str) -> bool:
     session (see `SYNERGIA_LOGGED_OUT_MARKERS`)."""
     low = body.lower()
     return any(marker in low for marker in SYNERGIA_LOGGED_OUT_MARKERS)
+
+
+def _looks_not_found(body: str) -> bool:
+    """Whether a Synergia download page plainly says the file isn't there
+    (see `SYNERGIA_NOT_FOUND_MARKERS`)."""
+    low = body.lower()
+    return any(marker in low for marker in SYNERGIA_NOT_FOUND_MARKERS)
+
+
+def _join_link(base: str, link: str) -> str | None:
+    """`link` resolved against `base`, or None when it isn't a valid URL."""
+    try:
+        return urljoin(base, link)
+    except ValueError:
+        return None
+
+
+def _link_scheme_and_host(link: str) -> tuple[str, str | None] | None:
+    """A link's scheme and host, or None when it isn't a valid URL (a
+    server-provided link must never raise a bare `ValueError`)."""
+    try:
+        parsed = URL(link)
+        return parsed.scheme, parsed.host
+    except ValueError:
+        return None
 
 
 _SINGLE_USE_KEY_RE = re.compile(r"singleUseKey=([0-9A-Za-z_\-]+)")

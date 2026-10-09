@@ -967,6 +967,14 @@ def test_parse_partial_grades_odd_shapes() -> None:
     assert (third.subject_id, third.value, third.comments) == (None, "", ["Brawo"])
 
 
+def test_parse_partial_grades_ignores_bools() -> None:
+    """`True` is not subject 1 and not the grade "True"."""
+    (grade,) = parsers.parse_partial_grades(
+        {"data": [{"gradeId": 4, "subjectId": True, "scaleValue": {"value": False}}]}
+    )
+    assert (grade.subject_id, grade.value) == (None, "")
+
+
 def test_parse_message_receivers() -> None:
     message = parsers.parse_message(
         {

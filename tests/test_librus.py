@@ -16,7 +16,8 @@ from librus_synergia.const import (
     SYNERGIA_PORTAL_LOGIN_URL,
     SYNERGIA_STUDENT_INFO_URL,
 )
-from librus_synergia.exceptions import LibrusUnexpectedResponseError
+from librus_synergia.exceptions import LibrusConnectionError, LibrusUnexpectedResponseError
+from librus_synergia.librus import RECHECK_SECONDS
 
 from .helpers import MockedSession, mock_successful_login
 from .test_parsers import STUDENT_INFO_PAGE
@@ -406,3 +407,205 @@ async def test_insufficient_scopes_does_not_log_in_again() -> None:
             with pytest.raises(LibrusUnexpectedResponseError):
                 await librus._call(lambda: librus.client._async_request("SchoolInfo"))
             assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 1
+
+
+class _Clock:
+    """Stands in for `librus_synergia.librus._now`."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
+    fake = _Clock()
+    monkeypatch.setattr("librus_synergia.librus._now", fake)
+    return fake
+
+
+ATTACHMENT = f"{MESSAGES_BASE_URL}/attachments/55/messages/99"
+SANDBOX_LINK = "https://sandbox.librus.pl/GetFile/KEY"
+
+
+async def test_message_attachment_timeout_does_not_log_in_again(monkeypatch) -> None:
+    """Hitting the download deadline is not a dead session: no relogin, no
+    second download."""
+    monkeypatch.setattr("librus_synergia.client.DOWNLOAD_TIMEOUT_SECONDS", 0.05)
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(MESSAGES_BOOTSTRAP_URL, text_data="<html>ok</html>")
+            mocked.get(ATTACHMENT, json_data={"data": {"downloadLink": SANDBOX_LINK}})
+            mocked.get(SANDBOX_LINK, text_data="<html>wait</html>")
+            mocked.get(
+                f"{SANDBOX_LINK}/get",
+                text_data="<html>wait</html>",
+                headers={"Content-Type": "text/html"},
+            )
+            librus = Librus("1234567u", "pw", session=session)
+
+            with pytest.raises(LibrusConnectionError, match="attachment-55"):
+                await librus.download_attachment("55", "99")
+
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 1
+            assert mocked.get_calls[MESSAGES_BOOTSTRAP_URL] == 1
+            assert mocked.get_calls[ATTACHMENT] == 1
+
+
+async def test_message_attachment_odd_answer_does_not_log_in_again() -> None:
+    """An answer without an error status (here a link outside the sandbox)
+    can't be fixed by logging in again."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(MESSAGES_BOOTSTRAP_URL, text_data="<html>ok</html>")
+            mocked.get(
+                ATTACHMENT, json_data={"data": {"downloadLink": "https://example.invalid/X"}}
+            )
+            librus = Librus("1234567u", "pw", session=session)
+
+            with pytest.raises(LibrusUnexpectedResponseError):
+                await librus.download_attachment("55", "99")
+
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 1
+            assert mocked.get_calls[ATTACHMENT] == 1
+
+
+async def test_message_attachment_rejected_session_logs_in_again() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(MESSAGES_BOOTSTRAP_URL, text_data="<html>ok</html>")
+            mocked.get_sequence(
+                ATTACHMENT,
+                {"status": 401, "text_data": ""},
+                {"json_data": {"data": {"downloadLink": SANDBOX_LINK}}},
+            )
+            mocked.get(SANDBOX_LINK, text_data="<html>wait</html>")
+            mocked.get(
+                f"{SANDBOX_LINK}/get", body=b"%PDF", headers={"Content-Type": "application/pdf"}
+            )
+            librus = Librus("1234567u", "pw", session=session)
+
+            file = await librus.download_attachment("55", "99")
+
+            assert file is not None and file.content == b"%PDF"
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 2
+            assert mocked.get_calls[MESSAGES_BOOTSTRAP_URL] == 2
+
+
+async def test_download_deadline_covers_the_login(monkeypatch) -> None:
+    """The whole high-level download - logins included - stops at the
+    deadline."""
+    monkeypatch.setattr("librus_synergia.client.DOWNLOAD_TIMEOUT_SECONDS", 0.05)
+    librus = Librus("1234567u", "pw", session=aiohttp.ClientSession())
+
+    async def slow_login(*, force: bool = False) -> None:
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(librus, "login", slow_login)
+    try:
+        with pytest.raises(LibrusConnectionError, match="within 0.05 s"):
+            await librus.download_school_file("/pliki_szkoly/pobierz/5")
+    finally:
+        await librus.client._session.close()
+
+
+@pytest.mark.parametrize("status", [403, 404])
+async def test_partial_grades_refusal_is_asked_again_after_a_day(clock, status: int) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(TOKEN_INFO, json_data={"UserIdentifier": "LID-AUTH-USER-1"})
+            mocked.get(
+                USER_INFO, json_data={"IdentifierOfStudentAssignedWithUser": "LID-AUTH-USER-2"}
+            )
+            mocked.post(PARTIAL_GRADES, status=status, json_data={"Status": "Error"})
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.partial_grades() == []
+            clock.now += RECHECK_SECONDS - 1
+            assert await librus.partial_grades() == []
+            assert mocked.post_calls[PARTIAL_GRADES] == 1
+            clock.now += 2
+            assert await librus.partial_grades() == []
+            assert mocked.post_calls[PARTIAL_GRADES] == 2
+
+
+async def test_child_identifier_refusal_is_kept_for_a_day(clock) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get_sequence(
+                TOKEN_INFO,
+                {"status": 403, "json_data": {}},
+                {"json_data": {"UserIdentifier": "LID-AUTH-USER-1"}},
+            )
+            mocked.get(
+                USER_INFO, json_data={"IdentifierOfStudentAssignedWithUser": "LID-AUTH-USER-2"}
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.student_identifier() is None
+            assert await librus.student_identifier() is None
+            assert mocked.get_calls[TOKEN_INFO] == 1
+            clock.now += RECHECK_SECONDS
+            assert await librus.student_identifier() == "LID-AUTH-USER-2"
+            assert mocked.get_calls[TOKEN_INFO] == 2
+
+
+async def test_grading_system_refusal_gives_the_default_for_a_day(clock) -> None:
+    grading_url = f"{DATA_BASE_URL}/GradingSystem"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get_sequence(
+                grading_url,
+                {"status": 404, "json_data": {}},
+                {"json_data": {"plusValue": 0.3}},
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            assert (await librus.grading_system()).plus_value == 0.5
+            assert (await librus.grading_system()).plus_value == 0.5
+            assert mocked.get_calls[grading_url] == 1
+            clock.now += RECHECK_SECONDS
+            assert (await librus.grading_system()).plus_value == 0.3
+            assert mocked.get_calls[grading_url] == 2
+
+
+async def test_grading_system_server_error_is_raised() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/GradingSystem", status=500, json_data={})
+            librus = Librus("1234567u", "pw", session=session)
+            with pytest.raises(LibrusUnexpectedResponseError):
+                await librus.grading_system()
+
+
+async def test_auth_subjects_are_kept_for_a_day(clock) -> None:
+    subjects_url = f"{DATA_BASE_URL}/Auth/Subjects"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(TOKEN_INFO, json_data={"UserIdentifier": "LID-AUTH-USER-1"})
+            mocked.get(
+                USER_INFO, json_data={"IdentifierOfStudentAssignedWithUser": "LID-AUTH-USER-2"}
+            )
+            mocked.post(
+                PARTIAL_GRADES,
+                json_data={"data": [{"gradeId": 1, "subjectId": "LID-S", "scaleValue": {}}]},
+            )
+            mocked.get(
+                subjects_url,
+                json_data={"data": [{"identifier": "LID-S", "numericIdentifier": 9}]},
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            for _ in range(2):
+                (grade,) = await librus.partial_grades()
+                assert grade.subject_id == 9
+            assert mocked.get_calls[subjects_url] == 1
+            clock.now += RECHECK_SECONDS
+            await librus.partial_grades()
+            assert mocked.get_calls[subjects_url] == 2

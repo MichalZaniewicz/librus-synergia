@@ -40,12 +40,16 @@ class FakeResponse:
         text_data: str = "",
         headers: dict[str, str] | None = None,
         body: bytes | None = None,
+        read_error: BaseException | None = None,
     ) -> None:
         self._body = body
+        self._read_error = read_error
         self.status = status
         self.headers = headers or {}
         self.url = URL("https://example.invalid/")
         self._text = json.dumps(json_data) if json_data is not None else text_data
+        length = self.headers.get("Content-Length")
+        self.content_length = int(length) if length is not None else None
 
     async def json(self, content_type: str | None = "application/json") -> Any:
         # Mirrors real aiohttp: content_type=None bypasses the content-type
@@ -53,10 +57,23 @@ class FakeResponse:
         # ValueError (json.JSONDecodeError) if it isn't valid JSON.
         return json.loads(self._text)
 
-    async def text(self) -> str:
-        return self._text
+    async def text(self, encoding: str | None = None, errors: str = "strict") -> str:
+        # Like aiohttp: decode `body` with the charset the Content-Type
+        # names (UTF-8 otherwise); an unknown charset raises LookupError.
+        if self._read_error is not None:
+            raise self._read_error
+        if self._body is None:
+            return self._text
+        charset = None
+        for part in self.headers.get("Content-Type", "").split(";")[1:]:
+            key, _, value = part.strip().partition("=")
+            if key.lower() == "charset":
+                charset = value.strip()
+        return self._body.decode(encoding or charset or "utf-8", errors)
 
     async def read(self) -> bytes:
+        if self._read_error is not None:
+            raise self._read_error
         return self._body if self._body is not None else self._text.encode()
 
     async def __aenter__(self) -> FakeResponse:

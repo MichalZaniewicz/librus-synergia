@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from http.cookies import SimpleCookie
 
@@ -9,7 +10,7 @@ import aiohttp
 import pytest
 from yarl import URL
 
-from librus_synergia.client import LibrusApiClient, LibrusSessionData
+from librus_synergia.client import LibrusApiClient, LibrusSessionData, _with_download_deadline
 from librus_synergia.const import (
     API_OAUTH_AUTHORIZATION_URL,
     DATA_BASE_URL,
@@ -630,13 +631,16 @@ async def test_download_redirect_to_a_lookalike_host_is_not_the_sandbox() -> Non
         "https://example.invalid/pliki_szkoly/pobierz/5",
         "//example.invalid/pliki_szkoly/pobierz/5",
         "http://synergia.librus.pl/pliki_szkoly/pobierz/5",
+        "https://[::1/pliki_szkoly/pobierz/5",
     ],
 )
 async def test_download_school_file_refuses_other_hosts(download_path: str) -> None:
+    """Refused before any request (the mocked session would fail on one),
+    as a `LibrusError` - not a bare `ValueError`."""
     async with aiohttp.ClientSession() as session:
         with MockedSession(session):
             client = LibrusApiClient(session, "1234567u")
-            with pytest.raises(ValueError, match="Not a Synergia download path"):
+            with pytest.raises(LibrusUnexpectedResponseError, match="Not a Synergia download path"):
                 await client.async_download_school_file(download_path)
 
 
@@ -718,3 +722,147 @@ async def test_message_attachment_link_outside_the_sandbox_is_refused() -> None:
                 await client.async_download_message_attachment("9", "10")
 
             assert "https://example.invalid/GetFile/X" not in mocked.get_calls
+
+
+@pytest.mark.parametrize(
+    "link", ["http://sandbox.librus.pl/GetFile/X", "https://[::1/GetFile/X", "https://:abc"]
+)
+async def test_message_attachment_link_must_be_https_and_valid(link: str) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{MESSAGES_BASE_URL}/attachments/9/messages/11",
+                json_data={"data": {"downloadLink": link}},
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusUnexpectedResponseError, match="outside the sandbox"):
+                await client.async_download_message_attachment("9", "11")
+
+            assert link not in mocked.get_calls
+
+
+async def test_download_page_without_redirect_is_session_expiry_unless_not_found() -> None:
+    """Any 200 page without a redirect counts as an expired web session
+    (a wrong guess costs one login) - here a page with no known text."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/89",
+                text_data="<html><h1>Synergia</h1>Coś poszło nie tak</html>",
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusSessionExpiredError) as err:
+                await client.async_download_homework_attachment("89")
+
+    assert err.value.status_code == 200
+
+
+async def test_not_found_text_on_the_logged_out_page_is_still_session_expiry() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/90",
+                text_data="<html>Brak dostępu - strona nie istnieje</html>",
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusSessionExpiredError):
+                await client.async_download_homework_attachment("90")
+
+
+async def test_download_page_is_decoded_with_its_own_charset() -> None:
+    """A not-found page in ISO-8859-2 is read with its charset; a page
+    naming an unknown charset (with bytes that aren't UTF-8) doesn't crash
+    either."""
+    body = "<html>Nie znaleziono pliku. Spróbuj później</html>".encode("iso-8859-2")
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/91",
+                body=body,
+                headers={"Content-Type": "text/html; charset=iso-8859-2"},
+            )
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/92",
+                body="<html>Brak dostępu</html>".encode("iso-8859-2"),
+                headers={"Content-Type": "text/html; charset=bogus-charset"},
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusUnexpectedResponseError, match="File not found") as err:
+                await client.async_download_homework_attachment("91")
+            assert not isinstance(err.value, LibrusSessionExpiredError)
+            assert "Spróbuj później" in str(err.value)
+
+            with pytest.raises(LibrusSessionExpiredError):
+                await client.async_download_homework_attachment("92")
+
+
+async def test_download_redirect_to_an_invalid_link_is_unexpected() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/93",
+                status=302,
+                headers={"Location": "https://[::1/GetFile/X"},
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusUnexpectedResponseError, match="Invalid download link"):
+                await client.async_download_homework_attachment("93")
+
+
+async def test_insufficient_scopes_only_counts_on_the_data_gateway() -> None:
+    """Off the data gateway (here Wiadomości) a 401 stays a dead session."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{MESSAGES_BASE_URL}/inbox/unreadMessagesCount",
+                status=401,
+                text_data="Insufficient scopes",
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusSessionExpiredError):
+                await client.async_get_unread_messages_count()
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"read_error": aiohttp.ClientPayloadError("cut off")},
+        {"read_error": TimeoutError()},
+        {"text_data": "Insufficient scopes", "headers": {"Content-Length": str(10**6)}},
+    ],
+)
+async def test_unreadable_401_body_is_a_dead_session(response: dict) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(f"{DATA_BASE_URL}/Grades", status=401, **response)
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusSessionExpiredError) as err:
+                await client.async_get_grades()
+
+    assert err.value.status_code == 401
+
+
+async def test_download_deadline_is_a_parameter() -> None:
+    async def slow() -> str:
+        await asyncio.sleep(5)
+        return "never"
+
+    with pytest.raises(LibrusConnectionError, match="wasn't downloaded within 0.01 s"):
+        await _with_download_deadline(slow(), "file-1", 0.01)
+
+
+async def test_aiohttp_timeout_is_told_apart_from_the_deadline() -> None:
+    async def aiohttp_timeout() -> str:
+        raise TimeoutError
+
+    with pytest.raises(LibrusConnectionError, match="the connection timed out") as err:
+        await _with_download_deadline(aiohttp_timeout(), "file-2", 10)
+
+    assert "within" not in str(err.value)
