@@ -392,12 +392,13 @@ class BehaviourGradeData:
 
 @dataclass(slots=True)
 class DescriptiveGradeData:
-    """An alternate, non-numeric grading system - CONFIRMED enabled for
-    this school via the `Units` endpoint (unlike `PointGrades`, which is
-    disabled here). Fields CONFIRMED (2026-09-06) via szkolny-eu/
-    szkolny-android's `LibrusApiDescriptiveGrades.kt`, but never seen
-    populated (empty on the test account). `skill_id`/`category_id` are
-    kept raw - their own name-lookup endpoints weren't probed yet."""
+    """A grade in a descriptive/skills-based subject (`DescriptiveGrades`),
+    e.g. music in grades 1-3. CONFIRMED live 2026-10-09: the shown grade is
+    `Map` ("6", same as `RealGradeValue`) - the item's `Grade` field holds
+    something else (3 for a "6"). `skill` is the skill the grade is for
+    (Synergia's "Kategoria" column, from `DescriptiveGrades/Skills`).
+    `comment_ids` point into `DescriptiveGrades/Comments`. These grades
+    don't count towards the average."""
 
     id: int
     subject_id: int | None
@@ -405,6 +406,11 @@ class DescriptiveGradeData:
     skill_id: int | None
     category_id: int | None
     add_date: str | None
+    skill: str | None = None
+    teacher_id: int | None = None
+    date: str | None = None
+    semester: int | None = None
+    comment_ids: list[int] = field(default_factory=list)
 
 
 @dataclass(slots=True)

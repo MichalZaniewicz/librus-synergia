@@ -206,3 +206,30 @@ async def test_student_number_redirect_relogs_in() -> None:
             librus = Librus("1234567u", "pw", session=session)
             assert await librus.student_number() == 25
             assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 2
+
+
+async def test_descriptive_grades_named_by_skill() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(
+                f"{DATA_BASE_URL}/DescriptiveGrades",
+                json_data={"Grades": [{"Id": 1, "Skill": {"Id": 501}, "Grade": 3, "Map": "6"}]},
+            )
+            mocked.get(
+                f"{DATA_BASE_URL}/DescriptiveGrades/Skills",
+                json_data={"Skills": [{"Id": 501, "Name": "Rytmika"}]},
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            (grade,) = await librus.descriptive_grades()
+    assert (grade.value, grade.skill) == ("6", "Rytmika")
+
+
+async def test_no_descriptive_grades_skips_the_skills_list() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/DescriptiveGrades", json_data={"Grades": []})
+            librus = Librus("1234567u", "pw", session=session)
+            assert await librus.descriptive_grades() == []
+            assert f"{DATA_BASE_URL}/DescriptiveGrades/Skills" not in mocked.get_calls

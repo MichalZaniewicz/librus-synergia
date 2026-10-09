@@ -371,8 +371,18 @@ class Librus:
         return parsers.parse_grade_categories(payload)
 
     async def descriptive_grades(self) -> list[DescriptiveGradeData]:
+        """Descriptive grades with their skill names. The skills list is
+        only fetched when there are grades to name."""
         payload = await self._call(self.client.async_get_descriptive_grades)
-        return parsers.parse_descriptive_grades(payload)
+        skills: dict[int, str] = {}
+        if payload.get("Grades"):
+            try:
+                skills = parsers.parse_descriptive_skills(
+                    await self._call(self.client.async_get_descriptive_grade_skills)
+                )
+            except LibrusError:
+                skills = {}
+        return parsers.parse_descriptive_grades(payload, skills)
 
     async def point_grades(self) -> list[PointGradeData]:
         """Point grades (schools grading in points or percent), with each

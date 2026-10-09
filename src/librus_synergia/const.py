@@ -202,6 +202,9 @@ ENDPOINT_HOMEWORK_ASSIGNMENT_CATEGORIES = "HomeWorkAssignments/Categories"
 # LibrusApiPointGradeCategories.kt).
 ENDPOINT_POINT_GRADE_CATEGORIES = "PointGrades/Categories"
 ENDPOINT_DESCRIPTIVE_GRADES = "DescriptiveGrades"
+# Every descriptive-grade skill of the school, CONFIRMED live 2026-10-09
+# (~1100 entries) - the name of a DescriptiveGrades item's Skill.
+ENDPOINT_DESCRIPTIVE_GRADE_SKILLS = "DescriptiveGrades/Skills"
 ENDPOINT_TEXT_GRADES = "TextGrades"
 
 # Wiadomości (private messages) is a SEPARATE subsystem on its own domain,

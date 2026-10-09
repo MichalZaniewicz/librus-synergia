@@ -689,15 +689,16 @@ def parse_behaviour_grades(
     return grades
 
 
-def parse_descriptive_grades(payload: dict[str, Any]) -> list[DescriptiveGradeData]:
-    """An alternate, non-numeric grading system - CONFIRMED (via the
-    `Units` endpoint) to be enabled for this school, unlike `PointGrades`.
-    Fields CONFIRMED (2026-09-06) via szkolny-android's
-    `LibrusApiDescriptiveGrades.kt`. `Skill`/`Category` are kept as raw ids
-    - their own name-lookup endpoints (`DescriptiveGrades/Skills`,
-    `/Types`) weren't probed this session, so no name to resolve them to
-    yet. Still empty on this account, so unverified against a real
-    populated example."""
+def parse_descriptive_grades(
+    payload: dict[str, Any], skills: dict[int, str] | None = None
+) -> list[DescriptiveGradeData]:
+    """`DescriptiveGrades` -> grades. CONFIRMED live 2026-10-09 (a parent
+    account, music in grade 1): the grade shown in Synergia is `Map` ("6",
+    `RealGradeValue` holds the same), NOT `Grade` (3 for that "6");
+    `Skill.Id` is resolved through `skills` (`parse_descriptive_skills`),
+    `AddedBy.Id` is the teacher, `Comments` is a list of `{"Id"}` into
+    `DescriptiveGrades/Comments`."""
+    skills = skills or {}
     items = payload.get("Grades")
     if not isinstance(items, list):
         return []
@@ -705,20 +706,37 @@ def parse_descriptive_grades(payload: dict[str, Any]) -> list[DescriptiveGradeDa
     for item in items:
         if not isinstance(item, dict) or item.get("Id") is None:
             continue
-        subject = item.get("Subject") or {}
-        skill = item.get("Skill") or {}
-        category = item.get("Category") or {}
+        skill_id = _ref(item, "Skill")
+        value = item.get("Map") or item.get("RealGradeValue") or item.get("Grade")
+        comment_ids = [
+            comment_id
+            for comment in item.get("Comments") or []
+            if isinstance(comment, dict) and (comment_id := as_int(comment.get("Id"))) is not None
+        ]
         grades.append(
             DescriptiveGradeData(
                 id=int(item["Id"]),
-                subject_id=subject.get("Id"),
-                value=item.get("Grade", ""),
-                skill_id=skill.get("Id"),
-                category_id=category.get("Id"),
+                subject_id=_ref(item, "Subject"),
+                value="" if value is None else str(value),
+                skill_id=skill_id,
+                category_id=_ref(item, "Category"),
                 add_date=item.get("AddDate"),
+                skill=skills.get(skill_id) if skill_id is not None else None,
+                teacher_id=_ref(item, "AddedBy"),
+                date=item.get("Date"),
+                semester=as_int(item.get("Semester")),
+                comment_ids=comment_ids,
             )
         )
     return grades
+
+
+def parse_descriptive_skills(payload: dict[str, Any]) -> dict[int, str]:
+    """`DescriptiveGrades/Skills` -> skill id to name ("Ekspresja muzyczna.
+    Śpiew"). CONFIRMED live 2026-10-09: `{"Skills": [{"Id", "Name",
+    "Subject", "Weight", "CountToTheAverage", "Color", "Teacher"?}]}` - every
+    skill of the whole school (~1100 entries, ~330 KB), so fetch it rarely."""
+    return parse_id_name_map(payload, ("Skills",))
 
 
 def _to_float(value: Any) -> float | None:

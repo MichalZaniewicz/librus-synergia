@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Descriptive grades show the real grade.** `DescriptiveGradeData.value`
+  now comes from `Map` (falling back to `RealGradeValue`): the `Grade` field
+  read before holds something else - a "6" in Synergia came through as `3`
+  (seen live, ha-librus-synergia #13).
+
+### Added
+- `DescriptiveGradeData.skill` (the skill name, e.g. "Ekspresja muzyczna.
+  Śpiew"), `teacher_id`, `date`, `semester` and `comment_ids`.
+  `parse_descriptive_skills()` and
+  `LibrusApiClient.async_get_descriptive_grade_skills()`
+  (`DescriptiveGrades/Skills`); `Librus.descriptive_grades()` fills in the
+  skill names (and only fetches the skills list when there are grades).
+
 ## 0.3.12
 
 ### Fixed

@@ -795,3 +795,46 @@ def test_homework_assignment_attachments_defensive() -> None:
         ("12", None),
     ]
     assert second.attachments == []
+
+
+def test_parse_descriptive_grades_reads_map_skill_and_teacher() -> None:
+    """Shape CONFIRMED live 2026-10-09: the shown grade is `Map`, not
+    `Grade` (3 for a "6")."""
+    skills = parsers.parse_descriptive_skills(
+        {
+            "Skills": [
+                {"Id": 501, "Name": "Ekspresja muzyczna. Śpiew", "Subject": {"Id": 9}},
+                {"Id": 502, "Name": "Rytmika", "Subject": {"Id": 9}},
+            ]
+        }
+    )
+    assert skills == {501: "Ekspresja muzyczna. Śpiew", 502: "Rytmika"}
+    grades = parsers.parse_descriptive_grades(
+        {
+            "Grades": [
+                {
+                    "Id": 1,
+                    "Lesson": {"Id": 3},
+                    "Subject": {"Id": 9},
+                    "Skill": {"Id": 501},
+                    "AddedBy": {"Id": 7},
+                    "Grade": 3,
+                    "Map": "6",
+                    "RealGradeValue": "6",
+                    "Date": "2026-09-30",
+                    "AddDate": "2026-09-30 13:37:00",
+                    "Semester": 1,
+                    "Comments": [{"Id": 44}],
+                },
+                {"Id": 2, "Skill": {"Id": 999}, "Grade": 4, "RealGradeValue": "5"},
+            ]
+        },
+        skills,
+    )
+    first, second = grades
+    assert first.value == "6"
+    assert (first.subject_id, first.skill_id, first.skill) == (9, 501, "Ekspresja muzyczna. Śpiew")
+    assert (first.teacher_id, first.date, first.semester) == (7, "2026-09-30", 1)
+    assert first.comment_ids == [44]
+    # No Map -> RealGradeValue; an unknown skill keeps its id only.
+    assert (second.value, second.skill, second.comment_ids) == ("5", None, [])
