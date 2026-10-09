@@ -28,8 +28,8 @@ Base: `https://wiadomosci.librus.pl/api`
 | `GET /<mailbox>/messages?limit=10[&unreadOnly=1]` | ✅ `{"data": [...], "total": N}`. ✅ At least one secondary mailbox returns a **bare JSON array** without the `data` envelope. ✅ Listing **does not** mark anything read. |
 | `GET /<mailbox>/messages/<id>` | ✅ The full message. ⚠️ **Marks the message read**, exactly like opening it in the app. |
 | `GET /me` | ✅ The logged-in account: `firstName`, `lastName`, `groupName` ("rodzic"), `accountId`, `accessToAttachments`. |
-| `GET /outbox/messages` | ✅ Messages you sent (`receiverName`, `topic`, `content`, `sendDate`). No read-marking involved. `messages("outbox")` fills `MessageData.receiver_name` (falls back to `receiverFirstName`/`receiverLastName`, 📖 not seen). |
-| `GET /archive/inbox/messages` | ✅ Archived (past years) inbox, same item shape, `total` and `archivingInProgress`. `messages("archive/inbox")`. ❓ Opening one archived message (`/archive/inbox/messages/<id>`) not tried. |
+| `GET /outbox/messages` | ✅ Messages you sent (`receiverName`, `topic`, `content`, `sendDate`). No read-marking involved. `messages("outbox")` fills `MessageData.receiver_name`. ✅ An item has `receiverName` and also `receiverFirstName`/`receiverLastName` (used when `receiverName` is empty), plus `messageId`, `tags`, `category`, `isAnyFileAttached`. |
+| `GET /archive/inbox/messages` | ✅ Archived (past years) inbox, same item shape, `total` and `archivingInProgress`. `messages("archive/inbox")`. ✅ Opening one (`/archive/inbox/messages/<id>`, checked 2026-10-09) returns the same `{"data": {...}}` shape as an inbox message - base64 `Message`, `attachments` (`filename`, `id`) - and `parse_message(payload, "archive/inbox", id)` reads it. ❓ The tested message was already read, so whether opening an unread archived one marks it read wasn't seen (assume it does). |
 | `GET /receivers/student-subjects` | ✅ `[{"teacherIdentifier", "subject"}]` - the student's teachers with their subjects. |
 
 Mailboxes: `inbox`, `notes`, `alerts`, `substitutions`, `absences`,
