@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.17
 
 ### Fixed
 - **A download page answering 200 without a redirect is an expired session
