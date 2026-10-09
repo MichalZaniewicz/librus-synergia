@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.13
 
 ### Fixed
 - **Descriptive grades show the real grade.** `DescriptiveGradeData.value`
