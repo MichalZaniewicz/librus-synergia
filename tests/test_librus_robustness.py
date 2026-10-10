@@ -462,3 +462,28 @@ async def test_failed_comment_lookup_keeps_the_grades() -> None:
             librus = Librus("1234567u", "pw", session=session)
             (grade,) = await librus.grades()
     assert grade.value == "5"
+
+
+# --- tzdata missing: a warning, once -------------------------------------------------
+
+
+def test_missing_time_zone_data_warns_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from zoneinfo import ZoneInfoNotFoundError
+
+    from librus_synergia import _dates
+
+    def no_zone(name: str) -> ZoneInfo:
+        raise ZoneInfoNotFoundError(name)
+
+    monkeypatch.setattr(_dates, "ZoneInfo", no_zone)
+    _dates._school_zone.cache_clear()
+    try:
+        with caplog.at_level("WARNING", logger="librus_synergia._dates"):
+            assert school_today() == datetime.now().date()
+            school_today()
+        warnings = [r for r in caplog.records if "tzdata" in r.getMessage()]
+        assert len(warnings) == 1
+    finally:
+        _dates._school_zone.cache_clear()

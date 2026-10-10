@@ -13,18 +13,27 @@ Run this with the main session cookies. It sets the cookies for
 `wiadomosci.librus.pl`.
 
 - ✅ If the body contains **`Brak dostępu`**, the school has no messages
-  module. That is a normal outcome, not an error.
+  module. That is a normal outcome, not an error. `Librus` asks again
+  after 5 minutes for the first three such answers in a row, then hourly
+  (and after every password login) - a session kept alive through
+  `/refreshToken` never logs in again, so a passing "Brak dostępu" would
+  otherwise switch messages off for as long as the session lives.
 - ✅ The messages session **expires independently of the main session,
   and much more often** (sometimes within the hour). When the session is
-  rejected (401/403) or another HTTP error status comes back - except a
-  404 (no such mailbox) - `Librus` first only bootstraps again (one
-  request) and retries; if that is rejected too, it logs in with the
-  password, bootstraps and retries once more. A network error or timeout,
-  a 429/502/503/504, and an answer without an error status that isn't what
-  was expected (not JSON, a failed download), are raised as they are: a
-  fresh login doesn't change them. Every password login (wherever it came
-  from) makes `Librus` bootstrap again before the next Wiadomości call, and
-  concurrent calls share one bootstrap.
+  rejected (401/403) or another 4xx comes back - except a 404 (no such
+  mailbox) - `Librus` first only bootstraps again (one request) and
+  retries. Only a **401** goes further: if the retry is rejected with 401
+  too (or the new bootstrap answers "Brak dostępu", which can mean the main
+  session is what died), it logs in with the password, bootstraps and
+  retries once more. When even that didn't fix the call, the next 10
+  minutes of Wiadomości calls raise the error instead of logging in again.
+  A 403 or another 4xx after the extra bootstrap, a 5xx, a network error or
+  timeout, a 429/502/503/504, and an answer without an error status that
+  isn't what was expected (not JSON, a failed download), are raised as they
+  are: a fresh login doesn't change them, and a Wiadomości outage must not
+  turn every snapshot into password logins. Every password login (wherever
+  it came from) makes `Librus` bootstrap again before the next Wiadomości
+  call, and concurrent calls share one bootstrap.
 
 ## Endpoints
 
@@ -95,7 +104,10 @@ does steps 1-3. It only follows an `https://sandbox.librus.pl/...`
 `downloadLink` (anything else, or a link that isn't a valid URL, is
 `LibrusUnexpectedResponseError`), and gives up with `LibrusConnectionError`
 after 150 s (`DOWNLOAD_TIMEOUT_SECONDS`) - the whole call, logins and
-retries included. Only when the session was rejected (or an HTTP error
-status came back) does it bootstrap Wiadomości again (and, if that isn't
-enough, log in once); a timeout or an odd answer (a link outside the
-sandbox, a failed download) is raised straight away.
+retries included. Only when the session was rejected (or a 4xx came
+back) does it bootstrap Wiadomości again - and only a repeated 401 leads to
+one password login (see "Bootstrap" above); a 5xx, a timeout or an odd
+answer (a link outside the sandbox, a failed download) is raised straight
+away. At most two downloads run at once (`MAX_CONCURRENT_DOWNLOADS`),
+outside the limit for ordinary requests, so slow downloads never hold them
+up.

@@ -26,15 +26,20 @@ attachments):
 | The page answers 200 and plainly says the file isn't there ("nie znaleziono", "nie istnieje", "not found") and isn't the logged-out page | Not a session problem. The page is read in the charset it names. | `LibrusUnexpectedResponseError` |
 | The page answers anything else without a redirect | Not a session problem. | `LibrusUnexpectedResponseError` |
 | The page redirects anywhere but `sandbox.librus.pl` | Synergia sends a dead session to its login page. | `LibrusSessionExpiredError` |
+| The page redirects to `sandbox.librus.pl` over plain `http://` | Not followed (the cookies would travel unencrypted). | `LibrusUnexpectedResponseError` |
 | The redirect (or a message attachment's `downloadLink`) isn't a valid URL | Not followed. | `LibrusUnexpectedResponseError` |
 | A message attachment's `downloadLink` isn't `https://sandbox.librus.pl/...` | Not followed. | `LibrusUnexpectedResponseError` |
 | A school document path that isn't on `https://synergia.librus.pl` (or isn't a valid URL) | Refused before any request, so the session cookies never go elsewhere. | `LibrusUnexpectedResponseError` |
 | The whole download took longer than 150 s (`DOWNLOAD_TIMEOUT_SECONDS`) | The sandbox is too slow; try again later. With `Librus`, the deadline covers the whole call, logins and a retry included. | `LibrusConnectionError` ("wasn't downloaded within ...") |
 | aiohttp's own timeout fired first | The connection stalled. | `LibrusConnectionError` ("the connection timed out") |
 
-`Librus` logs in again (once) when a download meets an expired session,
-never when it times out or gets an odd answer (a failed download key, a
-link outside the sandbox, a body that isn't JSON).
+`Librus` logs in again (once) when a homework or school-file download
+meets an expired session, and when a message attachment's Wiadomości
+session is still rejected with a 401 after one extra bootstrap - never when
+a download times out or gets an odd answer (a failed download key, a link
+outside the sandbox, a body that isn't JSON). At most two downloads run at
+once (`MAX_CONCURRENT_DOWNLOADS`), separately from the
+`max_concurrent_requests` limit.
 
 Login failures:
 
@@ -67,10 +72,13 @@ have abuse heuristics, and nobody has tested where their limits are.
 `Librus.fetch_all()` is a full snapshot: about 35 requests. `Librus` runs at
 most 6 at a time (`max_concurrent_requests`), remembers modules the account
 was refused for a day, skips lookups nothing refers to (comment lists,
-point-grade categories when there are no point grades) and, with
-`cache_reference_data=True`, keeps subjects, teachers, categories and
-similar for a day. For "what's new" polling use `fetch_changes()` (about 10
-requests), and don't poll more often than every ~15 minutes.
+point-grade categories when there are no point grades), keeps comment texts
+and the descriptive-grade skill list (fetched again only for an id they
+don't have, or after a day) and, with `cache_reference_data=True`, keeps
+subjects, teachers, categories, free days, the standing plan and similar
+for a day. For "what's new" polling use `fetch_changes()` (about 10
+requests, no comment texts), and don't poll more often than every ~15
+minutes.
 
 ❓ Whether any endpoint honours `ETag` / `If-None-Match` or
 `Last-Modified` / `If-Modified-Since` (which would let a poll skip unchanged

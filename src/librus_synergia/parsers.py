@@ -53,6 +53,27 @@ from .models import (
 LID_USER_PREFIX = "LID-AUTH-USER-"
 
 
+def _obj(value: Any) -> dict[str, Any]:
+    """`value` when it is a JSON object, else `{}`. A nested reference such
+    as `"Category": {"Id": 5}` could come back as a string, a list or a
+    number - reading `.get()` on that would crash the whole parse."""
+    return value if isinstance(value, dict) else {}
+
+
+def _items(value: Any) -> list[Any]:
+    """`value` when it is a JSON list, else `[]` (a number or an object in
+    place of a list would crash a `for` loop)."""
+    return value if isinstance(value, list) else []
+
+
+def _text(value: Any) -> str:
+    """A name-like field as text: `""` for a missing or null value (never
+    `"None"`), other non-strings via `str()`."""
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else str(value)
+
+
 def parse_grade_value(value: str, grading: GradingSystemData | None = None) -> float | None:
     """Convert a Librus grade string ("5+", "4-", "3", "bz"...) to a number.
 
@@ -142,7 +163,7 @@ def parse_auth_subjects(payload: dict[str, Any]) -> dict[str, int]:
     """`Auth/Subjects` -> subject LID (`identifier`) to the ordinary subject
     id (`numericIdentifier`). CONFIRMED live 2026-10-09."""
     result: dict[str, int] = {}
-    for item in payload.get("data") or []:
+    for item in _items(payload.get("data")):
         if not isinstance(item, dict):
             continue
         lid, numeric = item.get("identifier"), as_int(item.get("numericIdentifier"))
@@ -178,7 +199,7 @@ def parse_partial_grades(
     Parsed defensively: a missing field stays empty."""
     subjects_by_lid = subjects_by_lid or {}
     result: list[DescriptiveGradeData] = []
-    for item in payload.get("data") or []:
+    for item in _items(payload.get("data")):
         if not isinstance(item, dict) or item.get("gradeId") is None:
             continue
         raw_area, raw_scale = item.get("area"), item.get("scaleValue")
@@ -228,7 +249,7 @@ def parse_partial_grades(
                 teacher_lid=teacher if isinstance(teacher, str) else None,
                 requirements=[
                     r["name"]
-                    for r in item.get("implementedRequirements") or []
+                    for r in _items(item.get("implementedRequirements"))
                     if isinstance(r, dict) and isinstance(r.get("name"), str)
                 ],
             )
@@ -237,18 +258,18 @@ def parse_partial_grades(
 
 
 def parse_me(payload: dict[str, Any]) -> MeData:
-    me = payload.get("Me") or {}
-    account = me.get("Account") or {}
+    me = _obj(payload.get("Me"))
+    account = _obj(me.get("Account"))
     # CONFIRMED live: `Account` is the LOGIN's own identity, which for a
     # child's account under a parent-managed portal is the PARENT's name
     # (e.g. Account.FirstName/LastName was the parent, while `User` was the
     # actual student) - `MeData` is meant to represent the student, so read
     # the name from `User`, keeping only the id from `Account`.
-    student = me.get("User") or {}
+    student = _obj(me.get("User"))
     return MeData(
         account_id=account.get("Id"),
-        first_name=student.get("FirstName", ""),
-        last_name=student.get("LastName", ""),
+        first_name=_text(student.get("FirstName")),
+        last_name=_text(student.get("LastName")),
     )
 
 
@@ -294,7 +315,7 @@ def parse_comment_text_map(payload: dict[str, Any] | None) -> dict[int, str]:
     by `Grades/Comments` and `BehaviourGrades/Points/Comments`, CONFIRMED
     live 2026-09-06 to share this shape, and `DescriptiveGrades/Comments`,
     CONFIRMED live 2026-10-09) into an id->text map."""
-    if not payload:
+    if not isinstance(payload, dict):
         return {}
     items = payload.get("Comments")
     if not isinstance(items, list):
@@ -355,9 +376,9 @@ def parse_grades(
         grade_id = as_int(item.get("Id")) if isinstance(item, dict) else None
         if grade_id is None:
             continue
-        category = item.get("Category") or {}
-        subject = item.get("Subject") or {}
-        added_by = item.get("AddedBy") or {}
+        category = _obj(item.get("Category"))
+        subject = _obj(item.get("Subject"))
+        added_by = _obj(item.get("AddedBy"))
         improvement = item.get("Improvement")
         comments = resolve_comment_ids(item.get("Comments"), comment_text_by_id or {})
         raw_value = item.get("Grade")
@@ -397,8 +418,8 @@ def parse_notes(payload: dict[str, Any]) -> list[NoteData]:
         note_id = as_int(item.get("Id")) if isinstance(item, dict) else None
         if note_id is None:
             continue
-        category = item.get("Category") or {}
-        teacher = item.get("Teacher") or {}
+        category = _obj(item.get("Category"))
+        teacher = _obj(item.get("Teacher"))
         notes.append(
             NoteData(
                 id=note_id,
@@ -420,8 +441,8 @@ def parse_attendances(payload: dict[str, Any]) -> list[AttendanceData]:
     for item in items:
         if not isinstance(item, dict) or item.get("Id") is None:
             continue
-        lesson = item.get("Lesson") or {}
-        type_ = item.get("Type") or {}
+        lesson = _obj(item.get("Lesson"))
+        type_ = _obj(item.get("Type"))
         raw_id = item["Id"]
         try:
             item_id: int | str = int(raw_id)
@@ -493,9 +514,9 @@ def as_int(value: Any) -> int | None:
 
 
 def parse_lesson(raw: dict[str, Any]) -> LessonData:
-    subject = raw.get("Subject") or {}
-    teacher = raw.get("Teacher") or {}
-    classroom = raw.get("Classroom") or {}
+    subject = _obj(raw.get("Subject"))
+    teacher = _obj(raw.get("Teacher"))
+    classroom = _obj(raw.get("Classroom"))
     teacher_id = as_int(teacher.get("Id"))
     return LessonData(
         lesson_no=as_int(raw.get("LessonNo")),
@@ -728,8 +749,8 @@ def parse_homeworks(payload: dict[str, Any]) -> list[HomeworkEventData]:
         event_id = as_int(item.get("Id")) if isinstance(item, dict) else None
         if event_id is None:
             continue
-        category = item.get("Category") or {}
-        subject = item.get("Subject") or {}
+        category = _obj(item.get("Category"))
+        subject = _obj(item.get("Subject"))
         events.append(
             HomeworkEventData(
                 id=event_id,
@@ -759,7 +780,7 @@ def parse_homework_assignments(payload: dict[str, Any]) -> list[HomeworkAssignme
         assignment_id = as_int(item.get("Id")) if isinstance(item, dict) else None
         if assignment_id is None:
             continue
-        teacher = item.get("Teacher") or {}
+        teacher = _obj(item.get("Teacher"))
         assignments.append(
             HomeworkAssignmentData(
                 id=assignment_id,
@@ -768,8 +789,8 @@ def parse_homework_assignments(payload: dict[str, Any]) -> list[HomeworkAssignme
                 teacher_id=teacher.get("Id"),
                 date=item.get("Date"),
                 due_date=item.get("DueDate"),
-                category_id=as_int((item.get("Category") or {}).get("Id")),
-                lesson_id=as_int((item.get("Lesson") or {}).get("Id")),
+                category_id=as_int(_obj(item.get("Category")).get("Id")),
+                lesson_id=as_int(_obj(item.get("Lesson")).get("Id")),
                 attachments=parse_homework_attachments(item.get("HomeworkAssigmentFiles")),
             )
         )
@@ -821,8 +842,8 @@ def parse_behaviour_grades(
         grade_id = as_int(item.get("Id")) if isinstance(item, dict) else None
         if grade_id is None:
             continue
-        category = item.get("Category") or {}
-        added_by = item.get("AddedBy") or {}
+        category = _obj(item.get("Category"))
+        added_by = _obj(item.get("AddedBy"))
         behaviour_grade = item.get("BehaviourGrade")
         comments = resolve_comment_ids(item.get("Comments"), comment_text_by_id or {})
         grades.append(
@@ -874,7 +895,7 @@ def parse_descriptive_grades(
         value = item.get("Map") or item.get("RealGradeValue")
         comment_ids = [
             comment_id
-            for comment in item.get("Comments") or []
+            for comment in _items(item.get("Comments"))
             if isinstance(comment, dict) and (comment_id := as_int(comment.get("Id"))) is not None
         ]
         grades.append(
@@ -960,7 +981,7 @@ def parse_point_grades(
         grade_id = as_int(item["Id"])
         if grade_id is None:
             continue
-        category_id = as_int((item.get("Category") or {}).get("Id"))
+        category_id = as_int(_obj(item.get("Category")).get("Id"))
         category = categories.get(category_id) if category_id is not None else None
         value = str(item.get("Grade") or "")
         points = _to_float(item.get("GradeValue"))
@@ -969,7 +990,7 @@ def parse_point_grades(
         grades.append(
             PointGradeData(
                 id=grade_id,
-                subject_id=as_int((item.get("Subject") or {}).get("Id")),
+                subject_id=as_int(_obj(item.get("Subject")).get("Id")),
                 value=value,
                 points=points,
                 max_points=category.value_to if category else None,
@@ -979,7 +1000,7 @@ def parse_point_grades(
                 counts_to_average=category.counts_to_average if category else True,
                 semester=as_int(item.get("Semester")),
                 add_date=item.get("AddDate"),
-                teacher_id=as_int((item.get("AddedBy") or {}).get("Id")),
+                teacher_id=as_int(_obj(item.get("AddedBy")).get("Id")),
             )
         )
     return grades
@@ -993,7 +1014,7 @@ def _ref(item: dict[str, Any], key: str) -> int | None:
 def parse_text_grade_categories(payload: dict[str, Any]) -> dict[int, tuple[str, bool]]:
     """`TextGrades/Categories` -> {id: (name, counts to the average)}."""
     result: dict[int, tuple[str, bool]] = {}
-    for item in payload.get("Categories") or []:
+    for item in _items(payload.get("Categories")):
         if not isinstance(item, dict):
             continue
         category_id = as_int(item.get("Id"))
@@ -1009,7 +1030,7 @@ def parse_text_grades(
     2026-10-07; grades with `ShowInGradesView: false` are skipped."""
     categories = categories or {}
     result: list[TextGradeData] = []
-    for item in payload.get("Grades") or []:
+    for item in _items(payload.get("Grades")):
         if not isinstance(item, dict) or item.get("ShowInGradesView") is False:
             continue
         grade_id = as_int(item.get("Id"))
@@ -1046,7 +1067,7 @@ def parse_realizations(
     CONFIRMED live 2026-10-07."""
     lesson_subjects = lesson_subjects or {}
     result: list[LessonTopicData] = []
-    for item in payload.get("Realizations") or []:
+    for item in _items(payload.get("Realizations")):
         if not isinstance(item, dict) or item.get("Id") is None:
             continue
         lesson_id = _ref(item, "Lesson")
@@ -1079,7 +1100,7 @@ def parse_timetable_entries(
     are both listed. CONFIRMED live 2026-10-08."""
     lesson_subjects = lesson_subjects or {}
     result: list[StandingLessonData] = []
-    for item in payload.get("TimetableEntries") or []:
+    for item in _items(payload.get("TimetableEntries")):
         if not isinstance(item, dict):
             continue
         entry_id = as_int(item.get("Id"))
@@ -1207,7 +1228,7 @@ def parse_school_trips(payload: dict[str, Any]) -> list[SchoolTripData]:
     """`SchoolTrips` -> trips, soonest first. Lowercase fields inside a
     `Data` list. CONFIRMED live 2026-10-07."""
     result: list[SchoolTripData] = []
-    for item in payload.get("Data") or []:
+    for item in _items(payload.get("Data")):
         if not isinstance(item, dict):
             continue
         trip_id = as_int(item.get("id"))
@@ -1235,7 +1256,7 @@ def parse_school_files(payload: dict[str, Any]) -> list[SchoolFileData]:
     """`SchoolFiles` -> documents shared by the school, newest first.
     CONFIRMED live 2026-10-07."""
     result: list[SchoolFileData] = []
-    for item in payload.get("Data") or []:
+    for item in _items(payload.get("Data")):
         if not isinstance(item, dict) or item.get("id") is None:
             continue
         if item.get("failed") is True:
@@ -1276,12 +1297,12 @@ def parse_justifications(payload: dict[str, Any]) -> list[JustificationData]:
             continue
         lessons = [
             (lesson.get("date"), as_int(lesson.get("number")))
-            for lesson in item.get("lessons") or []
+            for lesson in _items(item.get("lessons"))
             if isinstance(lesson, dict)
         ]
         teachers = [
             str(t["name"])
-            for t in item.get("notifiedTeachers") or []
+            for t in _items(item.get("notifiedTeachers"))
             if isinstance(t, dict) and t.get("name")
         ]
         result.append(
@@ -1380,7 +1401,7 @@ def parse_parent_teacher_conferences(payload: dict[str, Any]) -> list[ParentTeac
         conference_id = as_int(item.get("Id")) if isinstance(item, dict) else None
         if conference_id is None:
             continue
-        teacher = item.get("Teacher") or {}
+        teacher = _obj(item.get("Teacher"))
         conferences.append(
             ParentTeacherConferenceData(
                 id=conference_id,
@@ -1497,7 +1518,11 @@ def decode_message_content(raw: str) -> str:
     incomplete trailing bytes and keeps the readable prefix - matches how
     every OTHER truncated message already reads (cut off mid-word, not
     mid-character).
+
+    Anything that isn't a string (a number, an object, null) gives `""`.
     """
+    if not isinstance(raw, str):
+        return ""
     try:
         decoded_bytes = base64.b64decode(raw)
     except ValueError:
@@ -1538,9 +1563,10 @@ def resolve_sender_name(payload: dict[str, Any]) -> str:
     absent/empty - CONFIRMED live to be the identical shape on both the
     mailbox list endpoints and the single full-message endpoint.
     """
-    return payload.get("senderName") or (
-        f"{payload.get('senderFirstName', '')} {payload.get('senderLastName', '')}".strip()
-    )
+    name = payload.get("senderName")
+    if isinstance(name, str) and name:
+        return name
+    return f"{_text(payload.get('senderFirstName'))} {_text(payload.get('senderLastName'))}".strip()
 
 
 def parse_message_list(list_payload: dict[str, Any], mailbox: str) -> list[MessageData]:
@@ -1602,7 +1628,7 @@ def parse_school(payload: dict[str, Any]) -> SchoolData | None:
     head_last = school.get("SurnameHeadTeacher") or ""
     head_name = f"{head_first} {head_last}".strip() or None
     return SchoolData(
-        name=school.get("Name", ""),
+        name=_text(school.get("Name")),
         town=school.get("Town"),
         street=school.get("Street"),
         building_number=school.get("BuildingNumber"),
@@ -1617,10 +1643,10 @@ def parse_class(payload: dict[str, Any]) -> ClassData | None:
     cls = payload.get("Class")
     if not isinstance(cls, dict):
         return None
-    tutor = cls.get("ClassTutor") or {}
+    tutor = _obj(cls.get("ClassTutor"))
     return ClassData(
         number=cls.get("Number"),
-        symbol=cls.get("Symbol", ""),
+        symbol=_text(cls.get("Symbol")),
         tutor_id=tutor.get("Id"),
         begin_school_year=cls.get("BeginSchoolYear"),
         end_first_semester=cls.get("EndFirstSemester"),
@@ -1703,7 +1729,7 @@ def parse_message(payload: dict[str, Any], mailbox: str, message_id: str) -> Ful
         return None
     attachments = [
         AttachmentData(id=str(a["id"]), filename=a.get("filename"))
-        for a in data.get("attachments") or []
+        for a in _items(data.get("attachments"))
         if isinstance(a, dict) and a.get("id") is not None
     ]
     return FullMessageData(
@@ -1724,7 +1750,7 @@ def parse_message_receivers(data: dict[str, Any]) -> list[MessageReceiverData]:
     CONFIRMED live 2026-10-09: `firstName`, `lastName`, `group` and
     `readed` - when that recipient read it (empty / missing until then)."""
     result: list[MessageReceiverData] = []
-    for item in data.get("receivers") or []:
+    for item in _items(data.get("receivers")):
         if not isinstance(item, dict):
             continue
         name = " ".join(
@@ -1753,6 +1779,8 @@ def parse_student_number(page: str) -> int | None:
     its label rather than by position (szkolny-android uses the 3rd row,
     the live page has an empty header row first). None when the row is
     missing or not a number."""
+    if not isinstance(page, str):
+        return None
     for row in _INFO_ROW_RE.findall(page):
         cells = {
             tag.lower(): html_unescape(_ANY_TAG_RE.sub(" ", body)).strip()

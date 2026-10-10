@@ -87,7 +87,9 @@ If any response body in steps 3–4 contains a captcha marker (`captcha`,
   each logging in.
 - To resume later, persist `LibrusSessionData` (via `export_session()` or
   `Librus.session_data`) and pass it back via `import_session()` or
-  `Librus(..., session_data=...)`.
+  `Librus(..., session_data=...)`. `Librus.session_data` can still be read
+  after `close()` (it holds the cookies the session had when it closed) and
+  reading it never opens a new session.
 
 ## One account per cookie jar
 

@@ -10,7 +10,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Michał Zaniewicz" }]
 requires-python = ">=3.12"
-dependencies = ["aiohttp>=3.9", "yarl>=1.9", "tzdata; sys_platform == 'win32'"]
+dependencies = ["aiohttp>=3.9", "yarl>=1.9", "tzdata"]
 keywords = ["librus", "synergia", "e-dziennik", "school", "gradebook", "async"]
 classifiers = [
     "Development Status :: 4 - Beta",

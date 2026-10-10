@@ -171,7 +171,11 @@ async def _watch(args: argparse.Namespace, librus: Librus) -> int:
 async def _run(args: argparse.Namespace, login: str, password: str) -> int:
     saved_session = _load_json(args.session)
     session_data = LibrusSessionData(**saved_session) if saved_session else None
-    async with Librus(login, password, session_data=session_data) as librus:
+    # A watch keeps one instance running: keep lookups that rarely change
+    # instead of fetching them every round.
+    async with Librus(
+        login, password, session_data=session_data, cache_reference_data=bool(args.watch)
+    ) as librus:
         try:
             if args.watch:
                 return await _watch(args, librus)

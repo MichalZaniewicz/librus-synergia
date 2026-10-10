@@ -75,6 +75,25 @@ RECHECK_SECONDS = 24 * 3600
 LOGIN_FAILURE_BACKOFF_SECONDS = 60
 # Requests one `Librus` instance runs at the same time.
 MAX_CONCURRENT_REQUESTS = 6
+# File downloads one `Librus` instance runs at the same time. They have
+# their own limit (a download can take up to `DOWNLOAD_TIMEOUT_SECONDS`, most
+# of it waiting for the sandbox), so they never hold up ordinary requests.
+MAX_CONCURRENT_DOWNLOADS = 2
+# After a forced password login didn't fix a Wiadomości call, calls in this
+# many seconds raise the error instead of logging in again.
+MESSAGES_RELOGIN_BACKOFF_SECONDS = 10 * 60
+# A Wiadomości bootstrap that said "Brak dostępu" (no messages module) is
+# asked again after MESSAGES_DENIED_QUICK_SECONDS for the first
+# MESSAGES_DENIED_QUICK_RECHECKS times in a row, then every
+# MESSAGES_DENIED_RECHECK_SECONDS - a passing refusal doesn't switch
+# messages off for long, a school without the module isn't asked often.
+MESSAGES_DENIED_QUICK_SECONDS = 5 * 60
+MESSAGES_DENIED_QUICK_RECHECKS = 3
+MESSAGES_DENIED_RECHECK_SECONDS = 3600
+# A kindergarten search whose requests failed (network, 5xx, a failed
+# login) is tried again after this many seconds; until then `timetable()`
+# raises the same error.
+KINDERGARTEN_RETRY_SECONDS = 5 * 60
 
 
 def _now() -> float:
@@ -136,22 +155,41 @@ async def _gather2[A, B](first: Awaitable[A], second: Awaitable[B]) -> tuple[A, 
     return cast(A, a), cast(B, b)
 
 
-async def _empty_payload() -> dict[str, Any]:
+async def _empty_lookup() -> dict[int, str]:
     return {}
 
 
-def _references_comments(items: Any) -> bool:
-    """Whether any item's `Comments` holds an id that needs the separate
-    comments endpoint (an embedded `{"Text": ...}` doesn't)."""
+def _comment_ids(items: Any) -> set[int]:
+    """The comment ids the items' `Comments` lists refer to (a bare id or an
+    `{"Id": ...}` object) - what the separate comments endpoint must know.
+    An embedded `{"Text": ...}` needs nothing."""
+    ids: set[int] = set()
     if not isinstance(items, list):
-        return False
+        return ids
     for item in items:
         comments = item.get("Comments") if isinstance(item, dict) else None
-        if isinstance(comments, list) and any(
-            not (isinstance(entry, dict) and entry.get("Text")) for entry in comments
-        ):
-            return True
-    return False
+        if not isinstance(comments, list):
+            continue
+        for entry in comments:
+            if isinstance(entry, dict):
+                if entry.get("Text"):
+                    continue
+                entry = entry.get("Id")
+            number = None if isinstance(entry, bool) else parsers.as_int(entry)
+            if number is not None:
+                ids.add(number)
+    return ids
+
+
+def _skill_ids(items: Any) -> set[int]:
+    """The `Skill.Id`s descriptive grades refer to."""
+    ids: set[int] = set()
+    for item in items if isinstance(items, list) else []:
+        skill = item.get("Skill") if isinstance(item, dict) else None
+        number = parsers.as_int(skill.get("Id")) if isinstance(skill, dict) else None
+        if number is not None:
+            ids.add(number)
+    return ids
 
 
 def _has_unknown(ids: list[Any], known: dict[Any, Any], ignore: set[Any]) -> bool:
@@ -172,8 +210,8 @@ class Librus:
     Pass `session` to reuse your own `aiohttp.ClientSession` (it must not be
     shared with another account - see `LibrusApiClient`). Otherwise one is
     created the first time it's needed (the first request, or the first
-    access to `client` / `session_data`) and closed by `close()` /
-    `__aexit__`; it allows `MAX_CONCURRENT_REQUESTS` connections to one host.
+    access to `client`) and closed by `close()` / `__aexit__`; it allows
+    `max_concurrent_requests` connections to one host.
 
     Pass `session_data` (from a previous run's `librus.session_data`) to
     resume without a fresh login and keep Librus's long-lived device cookie,
@@ -181,13 +219,19 @@ class Librus:
 
     `request_timeout` limits every data and login request (default 30 s, 10
     s to connect; None = the session's own). At most
-    `max_concurrent_requests` requests run at once.
+    `max_concurrent_requests` requests run at once (at least 1, else
+    `ValueError`); file downloads have a separate limit of
+    `MAX_CONCURRENT_DOWNLOADS` (2).
 
     `cache_reference_data=True` keeps lookups that rarely change (subjects,
-    teachers, classrooms, categories, attendance types, the `Lessons` map,
-    school and class) for `reference_ttl` seconds (default a day) instead of
-    fetching them every time; `fetch_all()` fetches one again early when the
-    data mentions an id it doesn't know. Off by default.
+    teachers, classrooms, categories - grade, note, agenda, homework and
+    text-grade ones -, point-grade categories, attendance types, the
+    `Lessons` map, the standing plan, free days, school and class) for
+    `reference_ttl` seconds (default a day) instead of fetching them every
+    time; `fetch_all()` fetches one again early when the data mentions an id
+    it doesn't know. Off by default. Comment texts and the descriptive-grade
+    skill names are always kept (for a day, or until an item refers to an id
+    they don't have).
     """
 
     def __init__(
@@ -203,6 +247,10 @@ class Librus:
         cache_reference_data: bool = False,
         reference_ttl: float = RECHECK_SECONDS,
     ) -> None:
+        if max_concurrent_requests < 1:
+            raise ValueError(
+                f"max_concurrent_requests must be at least 1, not {max_concurrent_requests}"
+            )
         self._username = username
         self._password = password
         self._session = session
@@ -217,16 +265,24 @@ class Librus:
         self._login_failure: LibrusError | None = None
         self._login_failed_at: float | None = None
         self._requests = asyncio.Semaphore(max_concurrent_requests)
+        self._downloads = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
         # Wiadomości: whether the module is there, the client's
         # `login_count` it was bootstrapped for, and how many bootstraps ran.
         self._messages_lock = asyncio.Lock()
         self._messages_available: bool | None = None
         self._messages_login = -1
         self._messages_bootstraps = 0
+        # "Brak dostępu" answers in a row, and when the last one came.
+        self._messages_denials = 0
+        self._messages_denied_at: float | None = None
+        # When a forced password login last failed to fix a Wiadomości call.
+        self._messages_relogin_failed_at: float | None = None
         # Kindergarten accounts (see `kindergartener_id`): a found child is
-        # kept; a search that found nothing is repeated after a day.
+        # kept; a search that found nothing is repeated after a day, one
+        # whose requests failed after KINDERGARTEN_RETRY_SECONDS.
         self._kindergarten_lock = asyncio.Lock()
         self._kindergarten_checked_at: float | None = None
+        self._kindergarten_failure: tuple[float, LibrusError] | None = None
         # The child's LID for the new descriptive grading (see
         # `student_identifier`), and whether that module answers at all.
         # A refusal is kept for `RECHECK_SECONDS` (the time it was seen).
@@ -255,10 +311,16 @@ class Librus:
         self._cache_reference_data = cache_reference_data
         self._reference_ttl = reference_ttl
         # key -> (time, value, load number): the number tells a copy loaded
-        # during the current snapshot from an older one.
+        # during the current snapshot from an older one. The counter goes up
+        # with every load attempt, failed ones too; `_reference_failed` keeps
+        # the number of a key's last failed load.
         self._reference_cache: dict[str, tuple[float, Any, int]] = {}
         self._reference_loads = 0
+        self._reference_failed: dict[str, int] = {}
         self._still_unknown: dict[str, set[Any]] = {}
+        # Comment texts and skill names (always kept): key -> (time, id map,
+        # the ids the items referred to when it was fetched).
+        self._lookups: dict[str, tuple[float, dict[int, str], frozenset[int]]] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -276,12 +338,21 @@ class Librus:
         await self.close()
 
     async def close(self) -> None:
+        """Close the session this instance created (a session you passed in
+        stays open). `session_data` still gives the latest cookies
+        afterwards, and a later call starts a new session with them."""
+        if self._client is not None:
+            # Kept so `session_data` and the next session have the latest
+            # cookies (the client and its cookie jar go away below).
+            self._session_data = self._client.export_session()
         if self._owns_session and self._session is not None:
             await self._session.close()
             self._session = None
             self._client = None
             self._messages_available = None
             self._messages_login = -1
+            self._messages_denials = 0
+            self._messages_denied_at = None
 
     @property
     def client(self) -> LibrusApiClient:
@@ -304,8 +375,12 @@ class Librus:
     @property
     def session_data(self) -> LibrusSessionData:
         """The current session's cookies, to persist and pass back as
-        `session_data=` next time."""
-        return self.client.export_session()
+        `session_data=` next time. Reading it never opens a session: before
+        the first request (or after `close()`) it is the last known copy -
+        what was passed in, or what the session held when it was closed."""
+        if self._client is None:
+            return self._session_data if self._session_data is not None else LibrusSessionData()
+        return self._client.export_session()
 
     async def login(self, *, force: bool = False) -> None:
         """Sign in now (normally not needed - every call signs in lazily).
@@ -340,31 +415,53 @@ class Librus:
                 raise
             self._login_failure = None
 
-    async def _limited(self, fetch: Callable[[], Awaitable[T]]) -> T:
-        """Run one request within the `max_concurrent_requests` limit."""
-        async with self._requests:
+    async def _limited(
+        self, fetch: Callable[[], Awaitable[T]], slots: asyncio.Semaphore | None = None
+    ) -> T:
+        """Run one request within `slots` - by default the
+        `max_concurrent_requests` limit (downloads pass their own)."""
+        async with slots or self._requests:
             return await fetch()
 
-    async def _call(self, fetch: Callable[[], Awaitable[T]]) -> T:
+    async def _call(
+        self, fetch: Callable[[], Awaitable[T]], *, slots: asyncio.Semaphore | None = None
+    ) -> T:
         """Run one API call, re-logging in once if Librus rejected the
         session (HTTP 401) earlier than expected. Requests rejected by the
         same dead session share one login."""
         await self.login()
         since = self.client.login_count
         try:
-            return await self._limited(fetch)
+            return await self._limited(fetch, slots)
         except LibrusSessionExpiredError as err:
             if err.status_code == 403:
                 raise
             await self._sign_in(force=True, since=since)
-            return await self._limited(fetch)
+            return await self._limited(fetch, slots)
+
+    def _messages_denial_expired(self) -> bool:
+        """Whether a "Brak dostępu" bootstrap answer is old enough to ask
+        again (see MESSAGES_DENIED_QUICK_SECONDS)."""
+        seconds = (
+            MESSAGES_DENIED_QUICK_SECONDS
+            if self._messages_denials <= MESSAGES_DENIED_QUICK_RECHECKS
+            else MESSAGES_DENIED_RECHECK_SECONDS
+        )
+        return not _fresh(self._messages_denied_at, seconds)
 
     async def _messages_ready(self) -> bool:
-        """Bootstrap the Wiadomości session when it wasn't yet, or a password
-        login happened since (that replaces the session it depends on).
-        False when the school has no messages module."""
+        """Bootstrap the Wiadomości session when it wasn't yet, a password
+        login happened since (that replaces the session it depends on), or
+        a "no messages module" answer is old enough to ask again (a session
+        renewed through `/refreshToken` keeps the same `login_count`, so
+        that alone would never ask again). False when the school has no
+        messages module."""
         async with self._messages_lock:
-            if self._messages_available is None or self._messages_login != self.client.login_count:
+            if (
+                self._messages_available is None
+                or self._messages_login != self.client.login_count
+                or (self._messages_available is False and self._messages_denial_expired())
+            ):
                 await self._bootstrap_messages_locked()
             return bool(self._messages_available)
 
@@ -377,46 +474,82 @@ class Librus:
 
     async def _bootstrap_messages_locked(self) -> None:
         login = self.client.login_count
-        self._messages_available = await self.client.async_bootstrap_messages()
+        available = await self.client.async_bootstrap_messages()
+        self._messages_available = available
         self._messages_login = login
         self._messages_bootstraps += 1
+        if available:
+            self._messages_denials, self._messages_denied_at = 0, None
+        else:
+            self._messages_denials += 1
+            self._messages_denied_at = _now()
 
-    async def _call_messages(self, fetch: Callable[[], Awaitable[T]]) -> T | None:
+    def _messages_relogin_allowed(self) -> bool:
+        return not _fresh(self._messages_relogin_failed_at, MESSAGES_RELOGIN_BACKOFF_SECONDS)
+
+    async def _call_messages(
+        self, fetch: Callable[[], Awaitable[T]], *, slots: asyncio.Semaphore | None = None
+    ) -> T | None:
         """Like `_call`, for the separate Wiadomości session. Returns None
-        when the school has no messages module. The Wiadomości session dies
-        independently (and more often) than the main one, so a rejected
-        session (`LibrusSessionExpiredError`) or an HTTP error status first
-        gets the Wiadomości session alone set up again (one request) and a
-        retry; only if that fails too, a fresh password login + bootstrap +
-        retry. A network error or timeout (including a download's deadline,
-        a 429 and a 502/503/504), a 404 and an odd answer without an error
+        when the school has no messages module.
+
+        The Wiadomości session dies independently (and more often) than the
+        main one, so a rejected session (`LibrusSessionExpiredError`) or an
+        HTTP 4xx status first gets the Wiadomości session alone set up again
+        (one request) and a retry. Only a rejected session with HTTP 401
+        goes further - a password login + bootstrap + retry - and so does a
+        bootstrap that answered "Brak dostępu" right after such a 401 (the
+        main session may be what died). A 403, another 4xx, a 5xx, a 404 (no
+        such mailbox), a network error or timeout (including a download's
+        deadline, a 429 and a 502/503/504) and an odd answer without an error
         status (not JSON, a link outside the sandbox, a failed download key)
-        are raised as they are - a fresh login can't fix them."""
+        never cause a password login. When a forced login didn't fix a call,
+        calls in the next MESSAGES_RELOGIN_BACKOFF_SECONDS raise instead of
+        logging in again."""
         await self.login()
-        rebootstrapped = relogged = False
+        rebootstrapped = relogged = rejected = False
+        since_login = self.client.login_count
         while True:
             if not await self._messages_ready():
+                if rejected and not relogged and self._messages_relogin_allowed():
+                    relogged = True
+                    await self._sign_in(force=True, since=since_login)
+                    continue
+                if relogged:
+                    self._messages_relogin_failed_at = _now()
                 return None
             since_login = self.client.login_count
             since_bootstrap = self._messages_bootstraps
+            error: LibrusError
             try:
-                return await self._limited(fetch)
-            except LibrusSessionExpiredError:
-                if relogged:
-                    raise
+                result = await self._limited(fetch, slots)
+            except LibrusSessionExpiredError as err:
+                error, rejected = err, err.status_code == 401
             except LibrusUnexpectedResponseError as err:
                 # A 404 means "no such mailbox for this account" (confirmed
                 # live for substitutions/alerts), not a dead session. A 401
                 # "Insufficient scopes" (only raised for the data gateway)
-                # can't change with a fresh login either.
-                if err.status_code is None or err.status_code in (401, 404) or relogged:
+                # can't change with a fresh login either, and a 5xx is
+                # Librus's own trouble.
+                status = err.status_code
+                if status is None or status in (401, 404) or status >= 500:
                     raise
+                error, rejected = err, False
+            else:
+                if relogged:
+                    self._messages_relogin_failed_at = None
+                return result
+            if relogged:
+                self._messages_relogin_failed_at = _now()
+                raise error
             if not rebootstrapped:
                 rebootstrapped = True
                 await self._bootstrap_messages(since=since_bootstrap)
-            else:
-                relogged = True
-                await self._sign_in(force=True, since=since_login)
+                continue
+            if not rejected or not self._messages_relogin_allowed():
+                raise error
+            relogged = True
+            await self._sign_in(force=True, since=since_login)
 
     # ------------------------------------------------------------------
     # Caches of rarely changing data
@@ -433,6 +566,10 @@ class Librus:
         try:
             value = await load()
         except LibrusError:
+            # Remembered, so `_refresh_unknown_references` doesn't send the
+            # same failing request again in the same call.
+            self._reference_loads += 1
+            self._reference_failed[key] = self._reference_loads
             if entry is None:
                 raise
             return cast(T, entry[1])
@@ -442,11 +579,34 @@ class Librus:
     def _store_reference(self, key: str, value: Any) -> None:
         self._reference_loads += 1
         self._reference_cache[key] = (_now(), value, self._reference_loads)
+        self._reference_failed.pop(key, None)
 
     def _forget_references(self, *keys: str) -> None:
         for key in keys:
             self._reference_cache.pop(key, None)
+            self._reference_failed.pop(key, None)
             self._still_unknown.pop(key, None)
+
+    async def _id_lookup(
+        self,
+        key: str,
+        fetch: Callable[[], Awaitable[dict[str, Any]]],
+        parse: Callable[[dict[str, Any]], dict[int, str]],
+        ids: set[int],
+    ) -> dict[int, str]:
+        """A best-effort id -> text lookup (comment texts, skill names),
+        kept for `RECHECK_SECONDS` and fetched again early only when the
+        items refer to an id it has never been asked for. A failed fetch
+        gives the last copy (or `{}`) and isn't kept."""
+        entry = self._lookups.get(key)
+        if entry is not None and _fresh(entry[0]) and ids <= (entry[1].keys() | entry[2]):
+            return entry[1]
+        payload = await self._try(fetch)
+        if payload is None:
+            return entry[1] if entry is not None else {}
+        lookup = parse(payload)
+        self._lookups[key] = (_now(), lookup, frozenset(ids))
+        return lookup
 
     async def _module(self, name: str, load: Callable[[], Awaitable[T]], empty: T) -> T:
         """An optional module: when Librus refuses it (403, 404, 405 or a 401
@@ -476,8 +636,10 @@ class Librus:
         `Users` record (`Me.Account.UserId`), falling back to Synergia's
         `informacja` web page."""
         me = await self._call(self.client.async_get_me)
-        user_id = ((me.get("Me") or {}).get("Account") or {}).get("UserId")
-        if user_id:
+        raw_me = me.get("Me")
+        account = raw_me.get("Account") if isinstance(raw_me, dict) else None
+        user_id = account.get("UserId") if isinstance(account, dict) else None
+        if isinstance(user_id, (int, str)) and not isinstance(user_id, bool) and user_id:
             try:
                 number = parsers.parse_user_class_register_number(
                     await self._call(lambda: self.client.async_get_user(user_id))
@@ -587,93 +749,144 @@ class Librus:
         this automatically after such a 403, so you rarely need it directly.
         Candidates come from `Me`, `Auth/TokenInfo` (+ `Auth/UserInfo`) and
         `Users/<id>`; the one whose kindergarten timetable has entries wins.
-        A found child is kept for this instance; a search that found nothing
-        (or whose requests failed) is repeated at most once a day
-        (`RECHECK_SECONDS`). Never raises a `LibrusError`."""
+        A found child is kept for this instance. A search that found nothing
+        - with every request answered (a refusal counts as an answer) - is
+        repeated at most once a day (`RECHECK_SECONDS`); one whose requests
+        failed (network, 5xx, a failed login, or a cancelled search) isn't
+        remembered as "nothing found" and is tried again after
+        `KINDERGARTEN_RETRY_SECONDS`. Never raises a `LibrusError` (None
+        when the search couldn't finish)."""
+        lid, _ = await self._kindergarten_search()
+        return lid
+
+    async def _kindergarten_search(self) -> tuple[str | None, LibrusError | None]:
+        """`kindergartener_id()`, plus the error that kept the search from
+        finishing (None when it finished)."""
         async with self._kindergarten_lock:
             if self._kindergarten_lid is not None:
-                return self._kindergarten_lid
+                return self._kindergarten_lid, None
             if _fresh(self._kindergarten_checked_at):
-                return None
-            self._kindergarten_checked_at = _now()
-            candidates: dict[str, None] = {}
+                return None, None
+            failure = self._kindergarten_failure
+            if failure is not None and _fresh(failure[0], KINDERGARTEN_RETRY_SECONDS):
+                return None, failure[1]
+            errors: list[LibrusError] = []
+            lid = await self._search_kindergartener(errors)
+            if lid is None and errors:
+                self._kindergarten_failure = (_now(), errors[0])
+                return None, errors[0]
+            self._kindergarten_failure = None
+            if lid is None:
+                # Stamped only now: a search cut short (cancelled, or a
+                # request without an answer) is not "nothing found".
+                self._kindergarten_checked_at = _now()
+            return lid, None
 
-            def add(values: list[str]) -> None:
-                for value in values:
-                    candidates.setdefault(value, None)
+    async def _answered(
+        self, fetch: Callable[[], Awaitable[Any]], errors: list[LibrusError]
+    ) -> dict[str, Any]:
+        """One kindergarten-search request: `{}` when it failed. A failure
+        that isn't a definite refusal (see `_is_refusal`) is added to
+        `errors` - the search then didn't get every answer."""
+        try:
+            result = await self._call(fetch)
+        except LibrusError as err:
+            if not _is_refusal(err):
+                errors.append(err)
+            return {}
+        return result if isinstance(result, dict) else {}
 
-            me_payload = await self._probe(self.client.async_get_me)
-            raw_me = me_payload.get("Me")
-            me: dict[str, Any] = raw_me if isinstance(raw_me, dict) else {}
-            add(parsers.collect_lid_user_identifiers(me.get("User")))
-            add(parsers.collect_lid_user_identifiers(me))
+    async def _search_kindergartener(self, errors: list[LibrusError]) -> str | None:
+        candidates: dict[str, None] = {}
 
-            token_lid = parsers.extract_token_user_identifier(
-                await self._probe(self.client.async_get_token_info)
+        def add(values: list[str]) -> None:
+            for value in values:
+                candidates.setdefault(value, None)
+
+        me_payload = await self._answered(self.client.async_get_me, errors)
+        raw_me = me_payload.get("Me")
+        me: dict[str, Any] = raw_me if isinstance(raw_me, dict) else {}
+        add(parsers.collect_lid_user_identifiers(me.get("User")))
+        add(parsers.collect_lid_user_identifiers(me))
+
+        token_lid = parsers.extract_token_user_identifier(
+            await self._answered(self.client.async_get_token_info, errors)
+        )
+        if token_lid:
+            add([token_lid])
+            add(
+                parsers.collect_lid_user_identifiers(
+                    await self._answered(lambda: self.client.async_get_user_info(token_lid), errors)
+                )
             )
-            if token_lid:
-                add([token_lid])
-                add(
-                    parsers.collect_lid_user_identifiers(
-                        await self._probe(lambda: self.client.async_get_user_info(token_lid))
-                    )
-                )
 
-            raw_account = me.get("Account")
-            account: dict[str, Any] = raw_account if isinstance(raw_account, dict) else {}
-            for numeric_id in dict.fromkeys(
-                value
-                for value in (account.get("UserId"), account.get("Id"))
-                if isinstance(value, int) and not isinstance(value, bool) and value > 0
-            ):
-                add(
-                    parsers.collect_lid_user_identifiers(
-                        await self._probe(partial(self.client.async_get_user, numeric_id))
-                    )
+        raw_account = me.get("Account")
+        account: dict[str, Any] = raw_account if isinstance(raw_account, dict) else {}
+        for numeric_id in dict.fromkeys(
+            value
+            for value in (account.get("UserId"), account.get("Id"))
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0
+        ):
+            add(
+                parsers.collect_lid_user_identifiers(
+                    await self._answered(partial(self.client.async_get_user, numeric_id), errors)
                 )
+            )
 
-            today = school_today()
-            for lid in list(candidates)[:6]:
-                payload = await self._probe(
-                    partial(
-                        self.client.async_get_kindergarten_timetable,
-                        lid,
-                        today - timedelta(days=30),
-                        today + timedelta(days=60),
-                    )
-                )
-                entries = payload.get("timetableEntries")
-                if not isinstance(entries, list) or not entries:
-                    continue
-                self._kindergarten_lid = lid
-                child = await self._probe(partial(self.client.async_get_kindergartener, lid))
-                child_data = child.get("data")
-                group_id = (
-                    child_data.get("groupIdentifier") if isinstance(child_data, dict) else None
-                )
-                self._kindergarten_group_id = (
-                    group_id if isinstance(group_id, str) and group_id else None
-                )
-                # Cached lookups were made without the kindergarten names.
-                self._forget_references("subjects", "teachers", "classrooms", "school_class")
-                break
-            return self._kindergarten_lid
+        today = school_today()
+        for lid in list(candidates)[:6]:
+            payload = await self._answered(
+                partial(
+                    self.client.async_get_kindergarten_timetable,
+                    lid,
+                    today - timedelta(days=30),
+                    today + timedelta(days=60),
+                ),
+                errors,
+            )
+            entries = payload.get("timetableEntries")
+            if not isinstance(entries, list) or not entries:
+                continue
+            child = await self._probe(partial(self.client.async_get_kindergartener, lid))
+            child_data = child.get("data")
+            group_id = child_data.get("groupIdentifier") if isinstance(child_data, dict) else None
+            # Set together, with no await in between, so a cancelled search
+            # never leaves a half-set child behind.
+            self._kindergarten_lid = lid
+            self._kindergarten_group_id = (
+                group_id if isinstance(group_id, str) and group_id else None
+            )
+            # Cached lookups were made without the kindergarten names.
+            self._forget_references("subjects", "teachers", "classrooms", "school_class")
+            return lid
+        return None
 
     # ------------------------------------------------------------------
     # Grades / behaviour
     # ------------------------------------------------------------------
 
     async def grades(self) -> list[GradeData]:
-        """All grades, with teacher comments resolved to text (the comments
-        list is only fetched when a grade has a comment; if that lookup
-        fails, the grades still come back, just without comment text). Turn
-        a grade's `value` ("4+", "bz", ...) into a number with
+        """All grades, with teacher comments resolved to text. The comments
+        list is only fetched when a grade has a comment, and then kept: it
+        is fetched again only when a grade refers to a comment id it hasn't
+        been asked for, or after a day. If that lookup fails, the grades
+        still come back, just without (new) comment text. Turn a grade's
+        `value` ("4+", "bz", ...) into a number with
         `parsers.parse_grade_value`."""
+        return await self._grades(with_comments=True)
+
+    async def _grades(self, *, with_comments: bool) -> list[GradeData]:
         grades = await self._call(self.client.async_get_grades)
-        comments: dict[str, Any] = {}
-        if _references_comments(grades.get("Grades")):
-            comments = await self._probe(self.client.async_get_grade_comments)
-        return parsers.parse_grades(grades, parsers.parse_comment_text_map(comments))
+        comments: dict[int, str] = {}
+        ids = _comment_ids(grades.get("Grades")) if with_comments else set()
+        if ids:
+            comments = await self._id_lookup(
+                "Grades/Comments",
+                self.client.async_get_grade_comments,
+                parsers.parse_comment_text_map,
+                ids,
+            )
+        return parsers.parse_grades(grades, comments)
 
     async def grade_categories(self) -> dict[int, GradeCategoryData]:
         return await self._reference(
@@ -685,28 +898,34 @@ class Librus:
 
     async def descriptive_grades(self) -> list[DescriptiveGradeData]:
         """Descriptive grades with their skill names and comments. Each
-        lookup is only fetched when a grade needs it, and either may fail
-        without losing the grades."""
+        lookup is only fetched when a grade needs it, then kept (the skills
+        list is the whole school's, ~330 KB): it is fetched again only when a
+        grade refers to an id it hasn't been asked for, or after a day.
+        Either may fail without losing the grades."""
         payload = await self._call(self.client.async_get_descriptive_grades)
         items = payload.get("Grades")
         if not items:
             return []
-        needs_skills = isinstance(items, list) and any(
-            isinstance(item, dict) and item.get("Skill") for item in items
-        )
+        skill_ids, comment_ids = _skill_ids(items), _comment_ids(items)
         skills, comments = await _gather2(
-            self._probe(self.client.async_get_descriptive_grade_skills)
-            if needs_skills
-            else _empty_payload(),
-            self._probe(self.client.async_get_descriptive_grade_comments)
-            if _references_comments(items)
-            else _empty_payload(),
+            self._id_lookup(
+                "DescriptiveGrades/Skills",
+                self.client.async_get_descriptive_grade_skills,
+                parsers.parse_descriptive_skills,
+                skill_ids,
+            )
+            if skill_ids
+            else _empty_lookup(),
+            self._id_lookup(
+                "DescriptiveGrades/Comments",
+                self.client.async_get_descriptive_grade_comments,
+                parsers.parse_comment_text_map,
+                comment_ids,
+            )
+            if comment_ids
+            else _empty_lookup(),
         )
-        return parsers.parse_descriptive_grades(
-            payload,
-            parsers.parse_descriptive_skills(skills),
-            parsers.parse_comment_text_map(comments),
-        )
+        return parsers.parse_descriptive_grades(payload, skills, comments)
 
     async def student_identifier(self) -> str | None:
         """The child's LID (`Auth/UserInfo/<token user>` ->
@@ -822,7 +1041,10 @@ class Librus:
             no_categories: dict[str, Any] = {}
             categories = await self._module(
                 "PointGrades/Categories",
-                lambda: self._call(self.client.async_get_point_grade_categories),
+                lambda: self._reference(
+                    "point_grade_categories",
+                    lambda: self._call(self.client.async_get_point_grade_categories),
+                ),
                 no_categories,
             )
             return parsers.parse_point_grades(
@@ -833,15 +1055,21 @@ class Librus:
 
     async def behaviour_grades(self) -> list[BehaviourGradeData]:
         """Formal behaviour grades. Comments are only fetched when a grade
-        has one. Empty when Librus refuses the module (remembered for a
-        day)."""
+        has one, and kept like `grades()`'s. Empty when Librus refuses the
+        module (remembered for a day)."""
 
         async def load() -> list[BehaviourGradeData]:
             points = await self._call(self.client.async_get_behaviour_grade_points)
-            comments: dict[str, Any] = {}
-            if _references_comments(points.get("Grades")):
-                comments = await self._probe(self.client.async_get_behaviour_grade_point_comments)
-            return parsers.parse_behaviour_grades(points, parsers.parse_comment_text_map(comments))
+            comments: dict[int, str] = {}
+            ids = _comment_ids(points.get("Grades"))
+            if ids:
+                comments = await self._id_lookup(
+                    "BehaviourGrades/Points/Comments",
+                    self.client.async_get_behaviour_grade_point_comments,
+                    parsers.parse_comment_text_map,
+                    ids,
+                )
+            return parsers.parse_behaviour_grades(points, comments)
 
         return await self._module("BehaviourGrades", load, [])
 
@@ -888,7 +1116,10 @@ class Librus:
         for a kindergarten child (see `kindergartener_id`, at most once a
         day while none is found) and, if one is found, returns the
         kindergarten timetable (time blocks, no lesson numbers). Otherwise
-        it returns `{}`."""
+        it returns `{}` - unless the search couldn't finish (a request
+        failed with a network error, a 5xx, ...): then that error is raised,
+        so `fetch_all()` marks the timetable as failed instead of passing
+        an empty week as real."""
         start = week_start_of(week_of or school_today())
         if self._kindergarten_lid is None:
             try:
@@ -897,7 +1128,10 @@ class Librus:
             except LibrusSessionExpiredError as err:
                 if err.status_code != 403:
                     raise
-            if await self.kindergartener_id() is None:
+            found, error = await self._kindergarten_search()
+            if found is None:
+                if error is not None:
+                    raise error
                 return {}
         lid = self._kindergarten_lid
         assert lid is not None
@@ -933,6 +1167,11 @@ class Librus:
         return parsers.parse_homework_assignments(payload)
 
     async def free_days(self) -> list[FreeDayData]:
+        """School and class free days (kept for `reference_ttl` with
+        `cache_reference_data`)."""
+        return await self._reference("free_days", self._load_free_days)
+
+    async def _load_free_days(self) -> list[FreeDayData]:
         school, klass = await _gather2(
             self._call(self.client.async_get_school_free_days),
             self._call(self.client.async_get_class_free_days),
@@ -944,14 +1183,20 @@ class Librus:
     async def text_grades(self) -> list[TextGradeData]:
         """Text grades (`BaseTextGrades`) - free-text grades that `grades()`
         doesn't contain - with their category names (only fetched when there
-        are grades). Empty when Librus refuses the module (remembered for a
-        day)."""
+        are grades; kept for `reference_ttl` with `cache_reference_data`).
+        Empty when Librus refuses the module (remembered for a day)."""
 
         async def load() -> list[TextGradeData]:
             grades = await self._call(self.client.async_get_base_text_grades)
             if not grades.get("Grades"):
                 return []
-            categories = await self._probe(self.client.async_get_text_grade_categories)
+            try:
+                categories = await self._reference(
+                    "text_grade_categories",
+                    lambda: self._call(self.client.async_get_text_grade_categories),
+                )
+            except LibrusError:
+                categories = {}
             return parsers.parse_text_grades(
                 grades, parsers.parse_text_grade_categories(categories)
             )
@@ -976,11 +1221,15 @@ class Librus:
     async def standing_timetable(self) -> list[StandingLessonData]:
         """The standing weekly plan (`TimetableEntries`), with the subject
         resolved through `Lessons`. `parsers.plan_differences()` compares
-        it with real weeks from `timetable()`."""
-        entries, lessons = await _gather2(
-            self._call(self.client.async_get_timetable_entries), self._lesson_subjects()
-        )
+        it with real weeks from `timetable()`. Kept for `reference_ttl` with
+        `cache_reference_data`."""
+        entries, lessons = await _gather2(self._timetable_entries(), self._lesson_subjects())
         return parsers.parse_timetable_entries(entries, lessons)
+
+    async def _timetable_entries(self) -> dict[str, Any]:
+        return await self._reference(
+            "timetable_entries", lambda: self._call(self.client.async_get_timetable_entries)
+        )
 
     async def school_trips(self) -> list[SchoolTripData]:
         """Empty when Librus refuses the module (remembered for a day)."""
@@ -1017,10 +1266,13 @@ class Librus:
         A rejected session gets the Wiadomości session set up again (and, if
         that isn't enough, one fresh login) + a retry; a timeout or an odd
         answer doesn't. The whole call, logins and retries included, gives
-        up with `LibrusConnectionError` after `DOWNLOAD_TIMEOUT_SECONDS`."""
+        up with `LibrusConnectionError` after `DOWNLOAD_TIMEOUT_SECONDS`.
+        Downloads (all three kinds) run at most `MAX_CONCURRENT_DOWNLOADS`
+        at a time, outside the `max_concurrent_requests` limit."""
         return await _with_download_deadline(
             self._call_messages(
-                lambda: self.client.async_download_message_attachment(attachment_id, message_id)
+                lambda: self.client.async_download_message_attachment(attachment_id, message_id),
+                slots=self._downloads,
             ),
             f"attachment-{attachment_id}",
         )
@@ -1031,7 +1283,10 @@ class Librus:
         session, not Wiadomości. The whole call, a relogin + retry
         included, gives up after `DOWNLOAD_TIMEOUT_SECONDS`."""
         return await _with_download_deadline(
-            self._call(lambda: self.client.async_download_homework_attachment(attachment_id)),
+            self._call(
+                lambda: self.client.async_download_homework_attachment(attachment_id),
+                slots=self._downloads,
+            ),
             f"homework-file-{attachment_id}",
         )
 
@@ -1040,7 +1295,10 @@ class Librus:
         Uses the main Synergia session. The whole call, a relogin + retry
         included, gives up after `DOWNLOAD_TIMEOUT_SECONDS`."""
         return await _with_download_deadline(
-            self._call(lambda: self.client.async_download_school_file(download_path)),
+            self._call(
+                lambda: self.client.async_download_school_file(download_path),
+                slots=self._downloads,
+            ),
             "school-file",
         )
 
@@ -1237,7 +1495,7 @@ class Librus:
             optional("homework_assignment_categories", self.homework_categories(), {}),
             optional("parent_teacher_conferences", self.parent_teacher_conferences(), []),
             optional("lesson_subjects", self._lesson_subjects(), {}),
-            optional("standing_timetable", self._call(self.client.async_get_timetable_entries), {}),
+            optional("standing_timetable", self._timetable_entries(), {}),
             # Messages run alongside the rest instead of after it.
             self._messages_snapshot(failed) if include_messages else _no_messages(failed),
         )
@@ -1295,6 +1553,8 @@ class Librus:
         next week's timetable and the latest inbox messages - plus subject
         names, to say what a change is about. About 10 requests instead of
         `fetch_all()`'s ~35, so it suits frequent "what's new" polling.
+        Grades come without comment texts (`GradeData.comments` is empty),
+        so the comments list is never fetched here.
 
         Every other field keeps its default (empty) value and is not listed
         in `failed_sections`; `me` is an empty `MeData`. Sections that fail
@@ -1319,7 +1579,8 @@ class Librus:
             subjects,
             messages_part,
         ) = await _gather_all(
-            optional("grades", self.grades(), []),
+            # Change tracking doesn't compare comment texts.
+            optional("grades", self._grades(with_comments=False), []),
             optional("notes", self.notes(), []),
             optional("attendances", self.attendances(), []),
             optional("attendance_types", self.attendance_types(), {}),
@@ -1426,8 +1687,16 @@ class Librus:
             if only is not None and key not in only:
                 continue
             entry = self._reference_cache.get(key)
-            if field_name in data.failed_sections or entry is None or entry[2] > started:
-                continue  # failed, not cached, or fetched by this very call
+            if (
+                field_name in data.failed_sections
+                or entry is None
+                or entry[2] > started
+                or self._reference_failed.get(key, 0) > started
+            ):
+                # Failed, not cached, fetched by this very call - or its
+                # load failed during this call (the copy is an expired one):
+                # asking again right away would only fail again.
+                continue
             known: dict[Any, Any] = getattr(data, field_name)
             if _has_unknown(ids, known, self._still_unknown.get(key, set())):
                 stale.append((key, field_name, load, ids))

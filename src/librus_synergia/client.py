@@ -872,9 +872,9 @@ class LibrusApiClient:
 
         Returns False (not an error) if this account's school doesn't have
         the messages module enabled - some don't. Caller decides how often
-        to call this (`Librus` does it after every password login, and once
-        more when the Wiadomości session alone was rejected); this method
-        does no caching.
+        to call this (`Librus` does it after every password login, once more
+        when the Wiadomości session alone was rejected, and again some time
+        after a "no messages module" answer); this method does no caching.
         """
         try:
             async with self._session.get(
@@ -1090,6 +1090,12 @@ class LibrusApiClient:
             # Synergia sends a dead session to its login page.
             raise LibrusSessionExpiredError(
                 f"Session rejected on {url} (redirected to {link}).", status_code=status
+            )
+        if parts != ("https", SANDBOX_DOMAIN):
+            # The sandbox over plain http: following it would send the
+            # session cookies unencrypted.
+            raise LibrusUnexpectedResponseError(
+                f"Download link on {url} isn't https: {link[:200]!r}"
             )
         return link
 

@@ -98,3 +98,91 @@ def test_null_message_content_and_topic() -> None:
     body = base64.b64encode(b"<Message><Content><![CDATA[Hej]]></Content></Message>").decode()
     full = parsers.parse_message({"data": {"Message": body}}, "inbox", "2")
     assert full is not None and full.content == "Hej"
+
+
+# A nested reference ("Category": {"Id": 5}) that comes back as something
+# else must not crash the whole parse - it just has no id.
+ODD_REFS: list[object] = ["x", [1, 2], 7, True]
+
+
+def test_odd_nested_references_do_not_crash_any_parser() -> None:
+    for odd in ODD_REFS:
+        ref = {
+            "Category": odd,
+            "Subject": odd,
+            "AddedBy": odd,
+            "Teacher": odd,
+            "Lesson": odd,
+            "Type": odd,
+            "Classroom": odd,
+        }
+        (grade,) = parsers.parse_grades({"Grades": [{"Id": 1, "Grade": "5", **ref}]})
+        assert grade.category_id is None and grade.subject_id is None
+        assert grade.teacher_id is None
+        (note,) = parsers.parse_notes({"Notes": [{"Id": 1, **ref}]})
+        assert note.category_id is None and note.teacher_id is None
+        (attendance,) = parsers.parse_attendances({"Attendances": [{"Id": 1, **ref}]})
+        assert attendance.lesson_id is None and attendance.type_id is None
+        lesson = parsers.parse_lesson(ref)
+        assert lesson.subject_id is None and lesson.classroom_id is None
+        (event,) = parsers.parse_homeworks({"HomeWorks": [{"Id": 1, **ref}]})
+        assert event.category_id is None
+        (assignment,) = parsers.parse_homework_assignments(
+            {"HomeWorkAssignments": [{"Id": 1, **ref}]}
+        )
+        assert assignment.lesson_id is None and assignment.teacher_id is None
+        (behaviour,) = parsers.parse_behaviour_grades({"Grades": [{"Id": 1, **ref}]})
+        assert behaviour.category_id is None
+        (point,) = parsers.parse_point_grades({"Grades": [{"Id": 1, **ref}]})
+        assert point.subject_id is None
+        (conference,) = parsers.parse_parent_teacher_conferences(
+            {"ParentTeacherConferences": [{"Id": 1, **ref}]}
+        )
+        assert conference.teacher_id is None
+        me = parsers.parse_me({"Me": {"Account": odd, "User": odd}})
+        assert me.account_id is None and me.first_name == ""
+        assert parsers.parse_me({"Me": odd}).last_name == ""
+        klass = parsers.parse_class({"Class": {"Symbol": "7d", "ClassTutor": odd}})
+        assert klass is not None and klass.tutor_id is None
+
+
+def test_odd_lists_do_not_crash() -> None:
+    assert parsers.parse_text_grades({"Grades": 5}) == []
+    assert parsers.parse_realizations({"Realizations": {"a": 1}}) == []
+    assert parsers.parse_school_trips({"Data": 3}) == []
+    (justification,) = parsers.parse_justifications(
+        {"data": [{"id": 1, "lessons": 4, "notifiedTeachers": "x"}]}
+    )
+    assert justification.lessons == [] and justification.teachers == []
+    (grade,) = parsers.parse_descriptive_grades({"Grades": [{"Id": 1, "Comments": 9}]})
+    assert grade.comment_ids == []
+    message = parsers.parse_message(
+        {"data": {"attachments": 1, "receivers": {"a": 1}, "Message": 5}}, "inbox", "9"
+    )
+    assert message is not None
+    assert message.attachments == [] and message.receivers == [] and message.content == ""
+
+
+def test_non_string_message_content_is_empty() -> None:
+    for odd in (123, {"a": 1}, ["x"], None):
+        assert parsers.decode_message_content(odd) == ""  # type: ignore[arg-type]
+    (message,) = parsers.parse_message_list({"data": [{"messageId": 1, "content": 42}]}, "inbox")
+    assert message.content == ""
+
+
+def test_odd_comment_payload_and_info_page_do_not_crash() -> None:
+    assert parsers.parse_comment_text_map(["x"]) == {}  # type: ignore[arg-type]
+    assert parsers.parse_student_number(None) is None  # type: ignore[arg-type]
+
+
+def test_null_names_never_become_none() -> None:
+    assert parsers.resolve_sender_name({"senderFirstName": None, "senderLastName": "Nowak"}) == (
+        "Nowak"
+    )
+    assert parsers.resolve_sender_name({"senderName": None, "senderFirstName": "Anna"}) == "Anna"
+    me = parsers.parse_me({"Me": {"User": {"FirstName": None, "LastName": "Kowalska"}}})
+    assert (me.first_name, me.last_name) == ("", "Kowalska")
+    school = parsers.parse_school({"School": {"Name": None}})
+    assert school is not None and school.name == ""
+    klass = parsers.parse_class({"Class": {"Symbol": None}})
+    assert klass is not None and klass.symbol == ""

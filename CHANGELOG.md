@@ -1,5 +1,77 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **A Wiadomości outage no longer turns into password logins.** Only a
+  rejected session with HTTP 401 can lead to a password login (after one
+  extra bootstrap and retry). A 5xx is raised straight away; a 403 or
+  another 4xx gets one extra bootstrap and is then raised. When a forced
+  login didn't fix a call, Wiadomości calls in the next 10 minutes raise
+  the error instead of logging in again.
+- **One "Brak dostępu" no longer switches messages off for days.** A
+  bootstrap that said the school has no messages module is asked again
+  after 5 minutes (three times in a row), then hourly - a session kept alive
+  through `/refreshToken` never logs in again, so the old "ask again after
+  the next login" could take days. A "Brak dostępu" right after a 401 now
+  goes on to the password login instead of reporting "no messages module".
+- **`session_data` after `close()`** gives the cookies the session had when
+  it closed (it used to open a new, never-closed session and return the
+  cookies passed to the constructor). Reading it never opens a session.
+- **A kindergarten search that couldn't finish isn't remembered as "nothing
+  found".** The day-long "nothing found" mark is set only after every
+  request was answered (a refusal counts as an answer). A search whose
+  requests failed is tried again after 5 minutes, and until then
+  `timetable()` raises that request's error - so `fetch_all()` lists the
+  timetable in `failed_sections` and `ChangeTracker` doesn't seed an empty
+  week (and later report lessons cancelled long ago as new). A cancelled
+  search leaves nothing behind.
+- **`max_concurrent_requests` below 1 raises `ValueError`** (0 used to hang
+  every request forever).
+- **Parsers no longer crash on an odd nested value.** A reference like
+  `"Category": {"Id": 5}` that comes back as a string, a list or a number
+  now just has no id, and a list field that isn't a list counts as empty
+  (grades, notes, attendances, lessons, agenda, homework, behaviour, point,
+  text and descriptive grades, conferences, `Me`, class, justifications,
+  messages, ...). `decode_message_content` returns `""` for anything that
+  isn't a string, `parse_comment_text_map` and `parse_student_number` accept
+  odd input. The Home Assistant integration calls these parsers directly,
+  so one odd record used to fail its whole update.
+- **A null name no longer becomes "None"**: a message sender with a null
+  first or last name, a null student name in `Me`, a null school name and a
+  null class symbol become `""`.
+- **`tzdata` is a dependency everywhere** (it was Windows-only), so minimal
+  containers (Alpine, ...) without a system time zone database still get
+  "today" in Poland. When the data is missing anyway, a warning is logged
+  once instead of silently using the machine's date.
+- **A download redirect to `http://sandbox.librus.pl` is not followed** (the
+  session cookies would travel unencrypted); it is
+  `LibrusUnexpectedResponseError`. Only `https://sandbox.librus.pl` is
+  followed, as for message attachments.
+- **A reference lookup that just failed isn't asked again in the same
+  call**: when `cache_reference_data` served an expired copy because the
+  refresh failed, the "unknown id" check no longer repeats the failing
+  request.
+
+### Changed
+- **File downloads have their own limit of 2 at a time**
+  (`MAX_CONCURRENT_DOWNLOADS`), outside `max_concurrent_requests`, so
+  downloads waiting on the sandbox (up to 150 s) never hold up ordinary
+  requests.
+- `fetch_changes()` returns grades without comment texts (change tracking
+  doesn't compare them) and never fetches the comments list.
+
+### Performance
+- **Comment texts are kept.** `grades()`, `behaviour_grades()` and
+  `descriptive_grades()` fetch a comments list again only when an item
+  refers to a comment id it hasn't been asked for, or after a day (a failed
+  refresh keeps the old texts). The descriptive-grade skills list (~330 KB)
+  is kept the same way.
+- With `cache_reference_data=True`, text-grade and point-grade categories,
+  free days (2 requests) and the standing plan (`TimetableEntries`) are kept
+  too.
+- The CLI's `--watch` turns `cache_reference_data` on.
+
 ## 0.3.18
 
 ### Fixed

@@ -60,7 +60,7 @@ librus-synergia --json > librus.json     # everything, as JSON
 librus-synergia --watch --state seen.json   # check every 15 min and print what's new
 ```
 
-Credentials come from the `LIBRUS_LOGIN` / `LIBRUS_PASSWORD` environment variables, or you're asked for them. Add `--session session.json` to reuse the login between runs; the file is written readable by you only (mode 0600), keep it private. `--watch` asks only for what it compares (`fetch_changes()`), keeps going through outages and timeouts (it prints the error and tries again next time), and stops only when the login fails.
+Credentials come from the `LIBRUS_LOGIN` / `LIBRUS_PASSWORD` environment variables, or you're asked for them. Add `--session session.json` to reuse the login between runs; the file is written readable by you only (mode 0600), keep it private. `--watch` asks only for what it compares (`fetch_changes()`), keeps lookups that rarely change (subject names, attendance types) between rounds (`cache_reference_data=True`), keeps going through outages and timeouts (it prints the error and tries again next time), and stops only when the login fails.
 
 ## Quick start
 
@@ -127,8 +127,8 @@ Every method logs in lazily and retries once after a fresh login if the session 
 Options of `Librus(...)`:
 
 - `request_timeout` - per data/login request, default 30 s (10 s to connect); `None` leaves it to the session. File downloads have their own 150 s limit.
-- `max_concurrent_requests` - default 6. A session the library creates itself also allows 6 connections per host.
-- `cache_reference_data=True` - keep subjects, teachers, classrooms, categories, attendance types, the lesson map, school and class for `reference_ttl` seconds (default a day). `fetch_all()` fetches one again early when the data mentions an id it doesn't know. Off by default.
+- `max_concurrent_requests` - default 6, at least 1. A session the library creates itself allows that many connections per host. File downloads have their own limit of 2 at a time, so slow downloads never hold up other requests.
+- `cache_reference_data=True` - keep subjects, teachers, classrooms, categories (grade, note, agenda, homework, text-grade, point-grade), attendance types, the lesson map, the standing plan, free days, school and class for `reference_ttl` seconds (default a day). `fetch_all()` fetches one again early when the data mentions an id it doesn't know. Off by default. Comment texts and the descriptive-grade skill list are always kept (fetched again for an id they don't have, or after a day).
 
 "Today" (this week's timetable, which lessons are still ahead) is today in Poland, whatever the machine's time zone.
 

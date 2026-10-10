@@ -17,6 +17,7 @@ from librus_synergia.const import (
     DATA_BASE_URL,
     MESSAGES_BOOTSTRAP_URL,
     REFRESH_RETRY_AFTER_SECONDS,
+    SYNERGIA_HOMEWORK_ATTACHMENT_URL,
     SYNERGIA_PORTAL_LOGIN_URL,
     SYNERGIA_REFRESH_TOKEN_URL,
     SYNERGIA_STUDENT_INFO_URL,
@@ -297,3 +298,18 @@ async def test_large_error_body_is_left_unread() -> None:
             with pytest.raises(LibrusServerMaintenanceError):
                 await _fresh_client(session).async_get_grades()
     assert response.reads == 0
+
+
+async def test_plain_http_sandbox_redirect_is_not_followed() -> None:
+    link = "http://sandbox.librus.pl/GetFile/KEY"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                f"{SYNERGIA_HOMEWORK_ATTACHMENT_URL}/77", status=302, headers={"Location": link}
+            )
+            client = LibrusApiClient(session, "1234567u")
+
+            with pytest.raises(LibrusUnexpectedResponseError, match="https"):
+                await client.async_download_homework_attachment("77")
+
+            assert link not in mocked.get_calls
