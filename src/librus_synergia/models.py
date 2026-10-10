@@ -158,15 +158,16 @@ class OriginalLessonData:
     """What a substituted or moved lesson was originally (`Org*` fields of
     a `Timetables` lesson). CONFIRMED live 2026-10-07: present on lessons
     with `IsSubstitutionClass: true` - the original date, lesson number,
-    hours, subject, teacher and classroom."""
+    hours, subject, teacher and classroom. ✅ Also built from a kindergarten
+    substitution's `substitutedLesson` (LID string ids, no lesson number)."""
 
     date: str | None
     lesson_no: int | None
     hour_from: str | None
     hour_to: str | None
-    subject_id: int | None
-    teacher_id: int | None
-    classroom_id: int | None
+    subject_id: int | str | None
+    teacher_id: int | str | None
+    classroom_id: int | str | None
 
 
 @dataclass(slots=True)

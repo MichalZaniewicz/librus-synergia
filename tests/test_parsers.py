@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 from datetime import date
+from typing import Any
 
 import pytest
 
@@ -91,6 +92,60 @@ def test_kindergarten_timetable_entries() -> None:
     assert lesson.lesson_no is None
     assert lesson.subject_id == "LID-A"
     assert lesson.teacher_ids == ("LID-T1", "LID-T2")
+
+
+def _kg_entry(ident: str, start: str, end: str, teacher: str, kind: str, **extra: Any) -> dict:
+    return {
+        "identifier": ident,
+        "date": "2026-10-12",
+        "startTime": start,
+        "endTime": end,
+        "activityTypeIdentifier": "LID-A",
+        "classroomIdentifier": "LID-R",
+        "teachers": [teacher],
+        "type": kind,
+        **extra,
+    }
+
+
+def test_kindergarten_substitution_replaces_the_substituted_block() -> None:
+    # Shape seen live 2026-10-10: the replaced block comes as "substituted",
+    # split into two "substitution" entries by other teachers.
+    original = _kg_entry("LID-O", "10:00", "13:00", "LID-T1", "substituted")
+    payload = {
+        "timetableEntries": [
+            {**original, "substitutions": [{"identifier": "LID-S1"}, {"identifier": "LID-S2"}]},
+            _kg_entry(
+                "LID-S1",
+                "10:00",
+                "11:00",
+                "LID-T2",
+                "substitution",
+                substitutedLesson=original,
+                substitutionType="LID-X",
+                comments="Choroba",
+            ),
+            _kg_entry(
+                "LID-S2", "11:00", "13:00", "LID-T3", "substitution", substitutedLesson=original
+            ),
+            _kg_entry("LID-C", "12:20", "12:50", "LID-T4", "cancelled", comments="Wycieczka"),
+        ]
+    }
+    first, second, cancelled = parsers.merge_timetables(payload)[date(2026, 10, 12)]
+    assert (first.hour_from, first.teacher_id, first.is_substitution) == ("10:00", "LID-T2", True)
+    assert first.original is not None
+    assert first.original.teacher_id == "LID-T1"
+    assert (first.original.hour_from, first.original.hour_to) == ("10:00", "13:00")
+    assert first.original.date == "2026-10-12" and first.original.lesson_no is None
+    assert first.substitution_note == "Choroba" and not first.is_canceled
+    assert second.teacher_id == "LID-T3" and second.substitution_note is None
+    assert cancelled.is_canceled and not cancelled.is_substitution
+
+
+def test_kindergarten_substituted_block_without_replacement_is_cancelled() -> None:
+    payload = {"timetableEntries": [_kg_entry("LID-O", "07:00", "09:00", "LID-T1", "substituted")]}
+    (lesson,) = parsers.merge_timetables(payload)[date(2026, 10, 12)]
+    assert lesson.is_canceled and not lesson.is_substitution
 
 
 def test_attendance_ids_may_be_prefixed_strings() -> None:

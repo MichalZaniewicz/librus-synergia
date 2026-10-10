@@ -22,6 +22,23 @@ GET https://synergia.librus.pl/gateway/ms/kindergartens/timetable/kindergartener
 - All references are LID strings.
 - `merge_timetables` accepts this payload directly.
 
+✅ Entry `type` values (seen 2026-10-10). Every entry also has
+`identifier` (LID) and `canManage`.
+
+| `type` | Meaning | Extra fields |
+|---|---|---|
+| `planned` | An ordinary block. | — |
+| `cancelled` | The block is cancelled. | `comments` (text) |
+| `substitution` | Replaces (part of) a planned block, usually with another teacher. One block can be split into several substitutions (10:00–13:00 → 10:00–11:00 + 11:00–13:00). | `substitutedLesson` (the replaced block: `identifier`, `date`, `startTime`, `endTime`, `activityTypeIdentifier`, `classroomIdentifier`, `teachers`, `type`), `substitutionType` (LID), `comments` (text) |
+| `substituted` | The replaced block itself, still with its original teacher and hours. | `substitutions` (list of the replacing entries, same fields as `substitutedLesson`) |
+
+Both `substituted` and its `substitution` entries come back for the same
+day, so showing every entry doubles that day. `merge_timetables` leaves a
+`substituted` block out and puts it into each replacement's `original`
+(`OriginalLessonData` with LID ids and no lesson number), with
+`comments` as `substitution_note`. A `substituted` block that nothing
+replaces shows as cancelled.
+
 ## Finding the child's LID
 
 ❓ The child identifier (`LID-AUTH-USER-...`) is not in one obvious place.

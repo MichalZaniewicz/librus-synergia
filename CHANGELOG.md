@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Kindergarten substitutions are no longer doubled.** Librus returns both
+  the replaced block (`type: "substituted"`) and its replacements
+  (`type: "substitution"`), and both were marked as substitutions. Now the
+  replaced block is left out and each replacement carries it as `original`
+  (its teacher, hours, activity and room), with the entry's `comments` as
+  `substitution_note`. A replaced block with no replacement shows as
+  cancelled. `OriginalLessonData` ids may now be LID strings.
+
 ## 0.3.20
 
 ### Fixed

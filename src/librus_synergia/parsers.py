@@ -559,7 +559,20 @@ def merge_kindergarten_entries(entries: list[Any], result: dict[date, list[Lesso
     Unlike `Timetables`, identifiers are LID strings
     (`activityTypeIdentifier`, `classroomIdentifier`, `teachers[]`) and
     there's no lesson number - entries are plain time blocks, so
-    `lesson_no` stays None."""
+    `lesson_no` stays None.
+
+    ✅ `type` (2026-10-10): `planned`, `cancelled`, `substitution` (the
+    replacement, with the replaced block in `substitutedLesson`) and
+    `substituted` (the replaced block itself, with its replacements in
+    `substitutions`). A replaced block is left out - its replacements
+    carry it as `original` - unless nothing replaces it, then it shows as
+    cancelled."""
+    replaced: set[str] = set()
+    for raw in entries:
+        if isinstance(raw, dict) and str(raw.get("type") or "").lower() == "substitution":
+            ref = _obj(raw.get("substitutedLesson")).get("identifier")
+            if ref:
+                replaced.add(str(ref))
     for raw in entries:
         if not isinstance(raw, dict):
             continue
@@ -567,16 +580,20 @@ def merge_kindergarten_entries(entries: list[Any], result: dict[date, list[Lesso
             day = date.fromisoformat(str(raw.get("date"))[:10])
         except ValueError:
             continue
+        entry_type = str(raw.get("type") or "planned").lower()
+        canceled = "cancel" in entry_type
+        original: OriginalLessonData | None = None
+        if entry_type == "substituted":
+            if raw.get("substitutions") or str(raw.get("identifier")) in replaced:
+                continue
+            canceled = True
+        note: str | None = None
+        if entry_type == "substitution":
+            original = _parse_kindergarten_original(raw.get("substitutedLesson"))
+            note = _text(raw.get("comments")).strip() or None
+        teacher_ids = _kindergarten_teacher_ids(raw.get("teachers"))
         activity_id = raw.get("activityTypeIdentifier")
         classroom_id = raw.get("classroomIdentifier")
-        raw_teachers = raw.get("teachers")
-        teacher_ids = tuple(
-            str(value)
-            for value in (raw_teachers if isinstance(raw_teachers, list) else ())
-            if isinstance(value, (str, int)) and str(value)
-        )
-        # Only "planned" has been seen live; the rest is a best guess.
-        entry_type = str(raw.get("type") or "planned").lower()
         result.setdefault(day, []).append(
             LessonData(
                 lesson_no=None,
@@ -585,11 +602,40 @@ def merge_kindergarten_entries(entries: list[Any], result: dict[date, list[Lesso
                 subject_id=str(activity_id) if activity_id is not None else None,
                 teacher_id=teacher_ids[0] if teacher_ids else None,
                 classroom_id=str(classroom_id) if classroom_id is not None else None,
-                is_canceled="cancel" in entry_type,
-                is_substitution="substitut" in entry_type,
+                is_canceled=canceled,
+                is_substitution=entry_type == "substitution",
                 teacher_ids=teacher_ids,
+                original=original,
+                substitution_note=note,
             )
         )
+
+
+def _kindergarten_teacher_ids(raw_teachers: Any) -> tuple[str, ...]:
+    return tuple(
+        str(value)
+        for value in (raw_teachers if isinstance(raw_teachers, list) else ())
+        if isinstance(value, (str, int)) and str(value)
+    )
+
+
+def _parse_kindergarten_original(raw: Any) -> OriginalLessonData | None:
+    """A kindergarten substitution's `substitutedLesson` (the block it
+    replaces) as an `OriginalLessonData`."""
+    if not isinstance(raw, dict):
+        return None
+    teacher_ids = _kindergarten_teacher_ids(raw.get("teachers"))
+    activity_id = raw.get("activityTypeIdentifier")
+    classroom_id = raw.get("classroomIdentifier")
+    return OriginalLessonData(
+        date=str(raw["date"])[:10] if raw.get("date") else None,
+        lesson_no=None,
+        hour_from=raw.get("startTime"),
+        hour_to=raw.get("endTime"),
+        subject_id=str(activity_id) if activity_id is not None else None,
+        teacher_id=teacher_ids[0] if teacher_ids else None,
+        classroom_id=str(classroom_id) if classroom_id is not None else None,
+    )
 
 
 def merge_timetables(*payloads: dict[str, Any]) -> dict[date, list[LessonData]]:
