@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.20
 
 ### Fixed
 - **A kindergarten search never costs a password login.** Each probe is one
