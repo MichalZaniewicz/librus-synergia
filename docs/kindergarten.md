@@ -27,12 +27,17 @@ GET https://synergia.librus.pl/gateway/ms/kindergartens/timetable/kindergartener
 ❓ The child identifier (`LID-AUTH-USER-...`) is not in one obvious place.
 Candidates, in the order `Librus.kindergartener_id()` tries them (at most
 6 are tested; a found child is kept for the `Librus` instance, and a search
-that found nothing with every request answered - a refusal counts as an
-answer - is repeated at most once a day. A search whose requests failed
-(network, 5xx, a failed login) or that was cancelled isn't remembered as
-"nothing found": it is tried again after 5 minutes, and meanwhile
-`timetable()` raises that request's error, so `fetch_all()` lists the
-timetable in `failed_sections` instead of passing an empty week as real):
+that found nothing with every request answered - any 4xx counts as an
+answer, a 401 from the kindergarten service too - is repeated at most once
+a day. A search whose requests failed (network, timeout, 5xx, a dead
+session on the main gateway, a failed login) or that was cancelled isn't
+remembered as "nothing found": it is tried again after 5 minutes, and
+meanwhile `timetable()` raises that request's error, so `fetch_all()` lists
+the timetable in `failed_sections` instead of passing an empty week as
+real. Each probe is one plain request: a search never forces a password
+login, so a probe that keeps answering 401 - a regular school whose
+unpublished timetable also answers 403 - costs no logins; a dead main
+session is left to the next ordinary call, which logs in again as usual):
 
 1. `LID-AUTH-USER-...` strings in `Me.User`, then anywhere in `Me`.
 2. `Auth/TokenInfo`, then `Auth/UserInfo/<lid>`.

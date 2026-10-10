@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **A kindergarten search never costs a password login.** Each probe is one
+  plain request, without the forced login + retry ordinary calls get. Only a
+  network error, a timeout, a 429/502/503/504, another 5xx or a dead-session
+  401 on the main gateway leave a search unfinished; any other 4xx is an
+  answer - including a 401 from the kindergarten service, which a regular
+  account may get every time. A regular school whose unpublished timetable
+  answers 403, and whose kindergarten probe answers 401, used to pay one
+  password login every 5 minutes; now it gets one search a day and no
+  logins. A dead main session is left to the next ordinary call.
+
+### Changed
+- **A refused point-grade or text-grade category list is remembered** with
+  `cache_reference_data=True`. When the kept copy had expired, a refusal
+  (403, 404, 405, 401 "Insufficient scopes") used to fall back to the old
+  copy, so the request was sent again on every call; now the module is left
+  alone for a day, like other refused modules. A transient error still
+  falls back to the expired copy.
+
 ## 0.3.19
 
 ### Fixed

@@ -592,3 +592,136 @@ async def test_kindergarten_search_error_is_a_librus_error() -> None:
             with pytest.raises(LibrusError):
                 await librus.timetable()
             assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 1
+
+
+# --- 13: a kindergarten search never costs a password login ------------------------------
+
+CHILD_LID = "LID-AUTH-USER-1-CHILD"
+KG_TIMETABLE = (
+    f"https://synergia.librus.pl/gateway/ms/kindergartens/timetable/kindergarteners/{CHILD_LID}"
+)
+
+
+def _mock_search_start(mocked: MockedSession) -> None:
+    """A Timetables 403 that starts a search with one candidate child."""
+    mocked.get(_url("Timetables"), status=403, json_data={})
+    mocked.get(_url("Me"), json_data={"Me": {"User": {"Id": CHILD_LID}, "Account": {}}})
+    mocked.get(_url("Auth/TokenInfo"), status=403, json_data={})
+
+
+async def test_kindergarten_service_401_is_an_answer(clock: _Clock) -> None:
+    """A regular school (timetable not published -> 403) whose kindergarten
+    probe keeps answering 401: one search, no password login, remembered."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            _mock_search_start(mocked)
+            mocked.get(KG_TIMETABLE, status=401, json_data={})
+            librus = Librus("1234567u", "pw", session=session)
+
+            assert await librus.timetable(date(2026, 9, 7)) == {}
+            assert librus._kindergarten_checked_at is not None
+            clock.now += KINDERGARTEN_RETRY_SECONDS
+            assert await librus.timetable(date(2026, 9, 7)) == {}
+
+            assert _logins(mocked) == 1  # only the first, ordinary login
+            assert mocked.get_calls[KG_TIMETABLE] == 1
+            assert mocked.get_calls[_url("Me")] == 1
+
+
+@pytest.mark.parametrize("status", [500, 503])
+async def test_kindergarten_service_server_error_is_not_an_answer(status: int) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            _mock_search_start(mocked)
+            mocked.get(KG_TIMETABLE, status=status, json_data={})
+            librus = Librus("1234567u", "pw", session=session)
+
+            with pytest.raises(LibrusError):
+                await librus.timetable(date(2026, 9, 7))
+
+            assert librus._kindergarten_checked_at is None
+            assert _logins(mocked) == 1
+            assert mocked.get_calls[KG_TIMETABLE] == 1  # no retry
+
+
+async def test_dead_main_session_in_a_search_is_left_to_data_calls() -> None:
+    """A dead-session 401 on `Me` during a search isn't "nothing found" and
+    doesn't log in; the next ordinary call logs in again as usual."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(_url("Timetables"), status=403, json_data={})
+            mocked.get(_url("Me"), status=401, json_data={})
+            mocked.get(_url("Auth/TokenInfo"), status=401, json_data={})
+            mocked.get_sequence(
+                _url("Notes"), {"status": 401, "json_data": {}}, {"json_data": {"Notes": []}}
+            )
+            librus = Librus("1234567u", "pw", session=session)
+
+            with pytest.raises(LibrusSessionExpiredError):
+                await librus.timetable(date(2026, 9, 7))
+            assert librus._kindergarten_checked_at is None
+            assert _logins(mocked) == 1
+
+            assert await librus.notes() == []
+            assert _logins(mocked) == 2
+
+
+# --- 14: a refused cached module isn't asked on every call -------------------------------
+
+
+async def test_refused_point_grade_categories_are_remembered(clock: _Clock) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(_url("Units"), json_data={})
+            mocked.get(_url("PointGrades"), json_data={"Grades": [{"Id": 1, "Grade": "8"}]})
+            mocked.get(_url("PointGrades/Categories"), json_data={"Categories": []})
+            librus = Librus("1234567u", "pw", session=session, cache_reference_data=True)
+            await librus.point_grades()
+
+            # The kept copy expires, then Librus refuses the module.
+            clock.now += RECHECK_SECONDS
+            mocked.get(_url("PointGrades/Categories"), status=403, json_data={})
+            for _ in range(3):
+                assert len(await librus.point_grades()) == 1
+
+            assert mocked.get_calls[_url("PointGrades/Categories")] == 2
+
+
+async def test_expired_point_grade_categories_survive_a_server_error(clock: _Clock) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(_url("Units"), json_data={})
+            mocked.get(_url("PointGrades"), json_data={"Grades": [{"Id": 1, "Grade": "8"}]})
+            mocked.get(_url("PointGrades/Categories"), json_data={"Categories": []})
+            librus = Librus("1234567u", "pw", session=session, cache_reference_data=True)
+            await librus.point_grades()
+
+            clock.now += RECHECK_SECONDS
+            mocked.get(_url("PointGrades/Categories"), status=500, json_data={})
+            for _ in range(2):
+                assert len(await librus.point_grades()) == 1
+
+            # A transient error isn't a refusal: asked again each time.
+            assert mocked.get_calls[_url("PointGrades/Categories")] == 3
+
+
+async def test_refused_text_grade_categories_are_remembered(clock: _Clock) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(_url("BaseTextGrades"), json_data={"Grades": [{"Id": 1, "Grade": "ok"}]})
+            mocked.get(_url("TextGrades/Categories"), json_data={"Categories": []})
+            librus = Librus("1234567u", "pw", session=session, cache_reference_data=True)
+            await librus.text_grades()
+
+            clock.now += RECHECK_SECONDS
+            mocked.get(_url("TextGrades/Categories"), status=403, json_data={})
+            for _ in range(3):
+                assert len(await librus.text_grades()) == 1
+
+            assert mocked.get_calls[_url("TextGrades/Categories")] == 2

@@ -2,7 +2,7 @@
 
 | Status | Where | Meaning | What to do | Exception |
 |---|---|---|---|---|
-| 401 | any data endpoint | ✅ The session died, often before the expected ~24 h. The password is still fine. | Log in again once and retry. `Librus` does this automatically. | `LibrusSessionExpiredError(status_code=401)` |
+| 401 | any data endpoint | ✅ The session died, often before the expected ~24 h. The password is still fine. | Log in again once and retry. `Librus` does this automatically - except in the kindergarten search, which never logs in again (a 401 from the kindergarten service counts there as "not a kindergarten account"; one on the main gateway is left to the next ordinary call). | `LibrusSessionExpiredError(status_code=401)` |
 | 401 + `Insufficient scopes` | `SchoolInfo`, `Duties`, `WhatsNew`, `Reports`, ... | ✅ The account may not use this endpoint at all. Not a dead session - logging in again doesn't help. Only recognised on the data gateway (`/gateway/api/2.0/`); a 401 anywhere else, or one whose body can't be read, stays an expired session. | Treat as not available; don't log in again. `Librus` remembers such a refusal for a day where it matters (child LID, new descriptive grading, `GradingSystem`). | `LibrusUnexpectedResponseError(status_code=401)` |
 | 403 | `Timetables` | ✅ The school hasn't published this class's timetable yet (Synergia's own web UI says "nie został jeszcze opublikowany"), **or** it is a kindergarten account. Logging in again does not help. | Treat as an empty timetable. | `LibrusSessionExpiredError(status_code=403)` |
 | 403 | other endpoints | ✅ The module is not available to this account type (e.g. `Substitutions`, `TeacherFreeDays`, or `Attendances/Types` on a messages-only preschool login). | Treat as empty. | same |

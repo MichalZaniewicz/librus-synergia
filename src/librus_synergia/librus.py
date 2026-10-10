@@ -31,7 +31,12 @@ from .client import (
     OnSessionUpdate,
     _with_download_deadline,
 )
-from .exceptions import LibrusError, LibrusSessionExpiredError, LibrusUnexpectedResponseError
+from .exceptions import (
+    LibrusConnectionError,
+    LibrusError,
+    LibrusSessionExpiredError,
+    LibrusUnexpectedResponseError,
+)
 from .models import (
     AttachmentFileData,
     AttendanceData,
@@ -90,9 +95,9 @@ MESSAGES_RELOGIN_BACKOFF_SECONDS = 10 * 60
 MESSAGES_DENIED_QUICK_SECONDS = 5 * 60
 MESSAGES_DENIED_QUICK_RECHECKS = 3
 MESSAGES_DENIED_RECHECK_SECONDS = 3600
-# A kindergarten search whose requests failed (network, 5xx, a failed
-# login) is tried again after this many seconds; until then `timetable()`
-# raises the same error.
+# A kindergarten search whose requests failed (network, 5xx, a dead main
+# session, a failed login) is tried again after this many seconds; until
+# then `timetable()` raises the same error.
 KINDERGARTEN_RETRY_SECONDS = 5 * 60
 
 
@@ -110,6 +115,19 @@ def _is_refusal(err: LibrusError) -> bool:
     if isinstance(err, LibrusUnexpectedResponseError):
         return err.status_code in (401, 403, 404, 405)
     return False
+
+
+def _unanswered(err: LibrusError, *, main_gateway: bool) -> bool:
+    """Whether a kindergarten-search request failed without a real answer:
+    a network error, timeout, 429/502/503/504 (`LibrusConnectionError`) or
+    another 5xx - or, on a main-gateway endpoint, a dead-session 401. Any
+    other 4xx is an answer."""
+    if isinstance(err, LibrusConnectionError):
+        return True
+    status = getattr(err, "status_code", None)
+    if isinstance(status, int) and status >= 500:
+        return True
+    return main_gateway and isinstance(err, LibrusSessionExpiredError) and status == 401
 
 
 def _fresh(at: float | None, seconds: float = RECHECK_SECONDS) -> bool:
@@ -555,9 +573,14 @@ class Librus:
     # Caches of rarely changing data
     # ------------------------------------------------------------------
 
-    async def _reference(self, key: str, load: Callable[[], Awaitable[T]]) -> T:
+    async def _reference(
+        self, key: str, load: Callable[[], Awaitable[T]], *, raise_refusals: bool = False
+    ) -> T:
         """`load()`, kept for `reference_ttl` when `cache_reference_data` is
-        on. A failed refresh falls back to the expired copy, if any."""
+        on. A failed refresh falls back to the expired copy, if any - except
+        a refusal (see `_is_refusal`) with `raise_refusals`, which is raised
+        so the `_module()` around it remembers it instead of sending the
+        same doomed request on every call."""
         if not self._cache_reference_data:
             return await load()
         entry = self._reference_cache.get(key)
@@ -565,12 +588,12 @@ class Librus:
             return cast(T, entry[1])
         try:
             value = await load()
-        except LibrusError:
+        except LibrusError as err:
             # Remembered, so `_refresh_unknown_references` doesn't send the
             # same failing request again in the same call.
             self._reference_loads += 1
             self._reference_failed[key] = self._reference_loads
-            if entry is None:
+            if entry is None or (raise_refusals and _is_refusal(err)):
                 raise
             return cast(T, entry[1])
         self._store_reference(key, value)
@@ -750,12 +773,15 @@ class Librus:
         Candidates come from `Me`, `Auth/TokenInfo` (+ `Auth/UserInfo`) and
         `Users/<id>`; the one whose kindergarten timetable has entries wins.
         A found child is kept for this instance. A search that found nothing
-        - with every request answered (a refusal counts as an answer) - is
-        repeated at most once a day (`RECHECK_SECONDS`); one whose requests
-        failed (network, 5xx, a failed login, or a cancelled search) isn't
-        remembered as "nothing found" and is tried again after
-        `KINDERGARTEN_RETRY_SECONDS`. Never raises a `LibrusError` (None
-        when the search couldn't finish)."""
+        - with every request answered (any 4xx counts as an answer, a 401
+        from the kindergarten service too) - is repeated at most once a day
+        (`RECHECK_SECONDS`); one whose requests failed (network, timeout,
+        5xx, a dead-session 401 on the main gateway, a failed login, or a
+        cancelled search) isn't remembered as "nothing found" and is tried
+        again after `KINDERGARTEN_RETRY_SECONDS`. The search sends one plain
+        request per probe and never forces a password login (only an
+        ordinary one when the session is too old). Never raises a
+        `LibrusError` (None when the search couldn't finish)."""
         lid, _ = await self._kindergarten_search()
         return lid
 
@@ -783,15 +809,30 @@ class Librus:
             return lid, None
 
     async def _answered(
-        self, fetch: Callable[[], Awaitable[Any]], errors: list[LibrusError]
+        self,
+        fetch: Callable[[], Awaitable[Any]],
+        errors: list[LibrusError],
+        *,
+        main_gateway: bool = True,
     ) -> dict[str, Any]:
-        """One kindergarten-search request: `{}` when it failed. A failure
-        that isn't a definite refusal (see `_is_refusal`) is added to
-        `errors` - the search then didn't get every answer."""
+        """One kindergarten-search request: `{}` when it failed.
+
+        A plain request (within the request limit) with no forced relogin:
+        a search must never cost a password login, or a probe that keeps
+        answering 401 would cost one every `KINDERGARTEN_RETRY_SECONDS`.
+        A dead main session is fixed by the next ordinary call instead.
+
+        Only a failure without a real answer is added to `errors` (the
+        search then didn't finish): a network error, a timeout, a 429/502/
+        503/504, any other 5xx - and a dead-session 401 from a main-gateway
+        endpoint (`main_gateway`), which says nothing about the account.
+        Any other 4xx is an answer ("not here"), including a 401 from the
+        separate kindergarten service, which a non-kindergarten account
+        may get every time."""
         try:
-            result = await self._call(fetch)
+            result = await self._limited(fetch)
         except LibrusError as err:
-            if not _is_refusal(err):
+            if _unanswered(err, main_gateway=main_gateway):
                 errors.append(err)
             return {}
         return result if isinstance(result, dict) else {}
@@ -802,6 +843,14 @@ class Librus:
         def add(values: list[str]) -> None:
             for value in values:
                 candidates.setdefault(value, None)
+
+        try:
+            # An ordinary login when the session is too old (never a forced
+            # one); a failed login is "couldn't finish".
+            await self.login()
+        except LibrusError as err:
+            errors.append(err)
+            return None
 
         me_payload = await self._answered(self.client.async_get_me, errors)
         raw_me = me_payload.get("Me")
@@ -843,11 +892,13 @@ class Librus:
                     today + timedelta(days=60),
                 ),
                 errors,
+                main_gateway=False,
             )
             entries = payload.get("timetableEntries")
             if not isinstance(entries, list) or not entries:
                 continue
-            child = await self._probe(partial(self.client.async_get_kindergartener, lid))
+            # Best-effort: the child is found either way.
+            child = await self._answered(partial(self.client.async_get_kindergartener, lid), [])
             child_data = child.get("data")
             group_id = child_data.get("groupIdentifier") if isinstance(child_data, dict) else None
             # Set together, with no await in between, so a cancelled search
@@ -1044,6 +1095,7 @@ class Librus:
                 lambda: self._reference(
                     "point_grade_categories",
                     lambda: self._call(self.client.async_get_point_grade_categories),
+                    raise_refusals=True,
                 ),
                 no_categories,
             )
@@ -1190,10 +1242,16 @@ class Librus:
             grades = await self._call(self.client.async_get_base_text_grades)
             if not grades.get("Grades"):
                 return []
+            no_categories: dict[str, Any] = {}
             try:
-                categories = await self._reference(
-                    "text_grade_categories",
-                    lambda: self._call(self.client.async_get_text_grade_categories),
+                categories = await self._module(
+                    "TextGrades/Categories",
+                    lambda: self._reference(
+                        "text_grade_categories",
+                        lambda: self._call(self.client.async_get_text_grade_categories),
+                        raise_refusals=True,
+                    ),
+                    no_categories,
                 )
             except LibrusError:
                 categories = {}
