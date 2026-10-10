@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.19
 
 ### Fixed
 - **A Wiadomości outage no longer turns into password logins.** Only a
