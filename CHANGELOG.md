@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.21
 
 ### Fixed
 - **Kindergarten substitutions are no longer doubled.** Librus returns both
