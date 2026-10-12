@@ -12,6 +12,7 @@ import base64
 import math
 import re
 from datetime import date, timedelta
+from html import escape as html_escape
 from html import unescape as html_unescape
 from typing import Any
 
@@ -37,6 +38,7 @@ from .models import (
     MeData,
     MessageData,
     MessageReceiverData,
+    MessageRecipientData,
     NoteData,
     OriginalLessonData,
     ParentTeacherConferenceData,
@@ -48,6 +50,7 @@ from .models import (
     SchoolFileData,
     SchoolNoticeData,
     SchoolTripData,
+    SentMessageData,
     StandingLessonData,
     TextGradeData,
 )
@@ -1851,7 +1854,105 @@ def parse_message(payload: dict[str, Any], mailbox: str, message_id: str) -> Ful
         read_date=data.get("readDate"),
         attachments=attachments,
         receivers=parse_message_receivers(data),
+        sender_id=_id_text(data.get("senderId")),
+        no_reply=_flag(data.get("noReply")),
+        can_withdraw=_flag(data.get("enableMessageWithdrawn"))
+        if data.get("enableMessageWithdrawn") is not None
+        else None,
+        withdrawn=_flag(data.get("isMessageWithdrawn")),
     )
+
+
+def _id_text(value: Any) -> str | None:
+    """A numeric id given as a number or a string, as a string."""
+    if isinstance(value, bool) or value is None:
+        return None
+    text = str(value).strip()
+    return text if text.isdigit() else None
+
+
+def _flag(value: Any) -> bool:
+    """Librus's 0/1, "0"/"1" or true/false flags."""
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true")
+    return bool(value)
+
+
+def encode_message_topic(topic: str) -> str:
+    """A message topic as Librus's web app sends it: UTF-8, base64."""
+    return base64.b64encode(topic.encode("utf-8")).decode("ascii")
+
+
+def encode_message_text(text: str) -> str:
+    """A message body as plain text: HTML-escaped (the reader shows the body
+    as HTML, so a "<" would otherwise vanish), then UTF-8 base64. New lines
+    stay new lines - the reader turns them into line breaks."""
+    escaped = html_escape(text.replace("\r\n", "\n"), quote=False)
+    return base64.b64encode(escaped.encode("utf-8")).decode("ascii")
+
+
+def parse_sent_message(payload: dict[str, Any]) -> SentMessageData | None:
+    """Librus's confirmation of a sent message (`{"data": {"messageId",
+    "status": "sent"}}`). None for anything else - the message may or may
+    not have gone out."""
+    data = _obj(payload.get("data"))
+    message_id = as_int(data.get("messageId"))
+    status = data.get("status")
+    if message_id is None or message_id <= 0 or status != "sent":
+        return None
+    return SentMessageData(message_id=message_id, status=status)
+
+
+def parse_message_recipients(
+    types_payload: dict[str, Any],
+    groups: dict[str, dict[str, Any]],
+    subjects_payload: dict[str, Any] | None = None,
+) -> list[MessageRecipientData]:
+    """Recipients a message can go to: the staff of each group in `groups`
+    (group id -> its `receivers/groups/school-employees` answer), labelled
+    with the group's name from `receivers/types` and with the subjects each
+    teaches the student (`receivers/student-subjects`). Someone in several
+    groups (a tutor is also a teacher) is listed once, under the first
+    group in `groups`' order. CONFIRMED live 2026-10-12."""
+    names = {
+        str(item.get("id")): _text(item.get("name"))
+        for item in _items(_obj(types_payload.get("data")).get("list"))
+        if isinstance(item, dict) and item.get("id")
+    }
+    subjects: dict[str, list[str]] = {}
+    for item in _items((subjects_payload or {}).get("data")):
+        if not isinstance(item, dict):
+            continue
+        teacher = _id_text(item.get("teacherIdentifier"))
+        subject = _text(item.get("subject")).strip()
+        if teacher and subject and subject not in subjects.setdefault(teacher, []):
+            subjects[teacher].append(subject)
+    result: list[MessageRecipientData] = []
+    seen: set[str] = set()
+    for group, payload in groups.items():
+        for item in _items(payload.get("receivers")):
+            if not isinstance(item, dict):
+                continue
+            account_id = _id_text(item.get("accountId"))
+            if account_id is None or account_id in seen:
+                continue
+            seen.add(account_id)
+            status = _obj(item.get("availabilityStatus"))
+            available = status.get("isAvailable")
+            result.append(
+                MessageRecipientData(
+                    account_id=account_id,
+                    name=_text(item.get("label")).strip(),
+                    group=group,
+                    group_name=names.get(group, group),
+                    subjects=subjects.get(account_id, []),
+                    available=None if available is None else _flag(available),
+                    return_at=status.get("returnAt")
+                    if isinstance(status.get("returnAt"), str)
+                    else None,
+                )
+            )
+    return result
 
 
 def parse_message_receivers(data: dict[str, Any]) -> list[MessageReceiverData]:

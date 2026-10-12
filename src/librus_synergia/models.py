@@ -784,6 +784,36 @@ class MessageReceiverData:
 
 
 @dataclass(slots=True)
+class MessageRecipientData:
+    """Someone a message can be sent to (Wiadomości recipient directory,
+    `receivers/groups/school-employees`). CONFIRMED live 2026-10-12.
+
+    `group` is Librus's recipient type id ("tutors", "teachers",
+    "secretary", ...), `group_name` its label ("Wychowawcy").
+    `subjects` lists the subjects this person teaches the student
+    (`receivers/student-subjects` - teacher ids there are the same account
+    ids). `available` / `return_at` come from Librus's own "away" status."""
+
+    account_id: str
+    name: str
+    group: str
+    group_name: str
+    subjects: list[str] = field(default_factory=list)
+    available: bool | None = None
+    return_at: str | None = None
+
+
+@dataclass(slots=True)
+class SentMessageData:
+    """Librus's confirmation of a sent message: `POST messages` (or
+    `messages/reply`) answered 201 with `{"data": {"messageId", "status":
+    "sent"}}`. Means Librus accepted it, not that anyone read it."""
+
+    message_id: int
+    status: str
+
+
+@dataclass(slots=True)
 class FullMessageData:
     """One message's full, untruncated body (see `parse_message`).
     Fetching this marks the message read on Librus's side."""
@@ -798,3 +828,12 @@ class FullMessageData:
     attachments: list[AttachmentData] = field(default_factory=list)
     # Sent messages only: who it went to and who has read it.
     receivers: list[MessageReceiverData] = field(default_factory=list)
+    # The sender's account id - who a reply goes to (CONFIRMED live
+    # 2026-10-12, it matches `inbox/messages/senders`).
+    sender_id: str | None = None
+    # Librus marks some messages (system senders) as not accepting replies.
+    no_reply: bool = False
+    # Sent messages: whether Librus still lets you withdraw it, and whether
+    # it has been withdrawn.
+    can_withdraw: bool | None = None
+    withdrawn: bool = False

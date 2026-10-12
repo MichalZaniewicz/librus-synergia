@@ -31,9 +31,16 @@ from .client import (
     OnSessionUpdate,
     _with_download_deadline,
 )
+from .const import (
+    MESSAGE_MAX_RECIPIENTS,
+    MESSAGE_MAX_TEXT_LENGTH,
+    MESSAGE_MAX_TOPIC_LENGTH,
+    MESSAGE_RECIPIENT_GROUPS,
+)
 from .exceptions import (
     LibrusConnectionError,
     LibrusError,
+    LibrusMessageSendError,
     LibrusSessionExpiredError,
     LibrusUnexpectedResponseError,
 )
@@ -59,6 +66,7 @@ from .models import (
     LuckyNumberData,
     MeData,
     MessageData,
+    MessageRecipientData,
     NoteData,
     ParentTeacherConferenceData,
     PlanChangeData,
@@ -67,6 +75,7 @@ from .models import (
     SchoolFileData,
     SchoolNoticeData,
     SchoolTripData,
+    SentMessageData,
     StandingLessonData,
     TextGradeData,
 )
@@ -1457,6 +1466,133 @@ class Librus:
             lambda: self.client.async_get_message(mailbox, message_id)
         )
         return None if payload is None else parsers.parse_message(payload, mailbox, message_id)
+
+    # ------------------------------------------------------------------
+    # Writing messages
+    # ------------------------------------------------------------------
+
+    async def message_recipients(self) -> list[MessageRecipientData]:
+        """Who a message can be sent to: the tutor, the teachers (each with
+        the subjects they teach the student), the head teachers, the
+        secretary's office and the school's other staff groups - whatever
+        `receivers/types` offers this account from `MESSAGE_RECIPIENT_GROUPS`.
+        Empty when the school has no messages module. Read-only."""
+        types = await self._call_messages(self.client.async_get_message_recipient_types)
+        if types is None:
+            return []
+        offered = {
+            str(item.get("id"))
+            for item in (types.get("data") or {}).get("list") or []
+            if isinstance(item, dict)
+        }
+        groups = [group for group in MESSAGE_RECIPIENT_GROUPS if group in offered]
+
+        async def one(group: str) -> tuple[str, dict[str, Any]]:
+            payload = await self._call_messages(
+                lambda: self.client.async_get_message_recipients(group)
+            )
+            return group, payload or {}
+
+        results = await asyncio.gather(*(one(group) for group in groups))
+        subjects = await self._call_messages(self.client.async_get_student_subject_teachers)
+        return parsers.parse_message_recipients(types, dict(results), subjects)
+
+    async def send_message(
+        self,
+        recipients: list[str],
+        topic: str,
+        text: str,
+        *,
+        reply_to: str | None = None,
+    ) -> SentMessageData:
+        """**Sends a message** to the given recipient account ids (see
+        `message_recipients`). Sent once, never retried: the Wiadomości
+        session is checked with a read first, then the message goes out in
+        one request. Returns Librus's confirmation, or raises
+        `LibrusMessageSendError` - its `sent` says whether the message went
+        out (False = no, None = unknown; check the sent messages before
+        trying again). `ValueError` for an empty or oversized message.
+        `reply_to_message` is the way to answer a received message."""
+        ids = [str(r).strip() for r in recipients]
+        if not ids or len(ids) > MESSAGE_MAX_RECIPIENTS or not all(i.isdigit() for i in ids):
+            raise ValueError(
+                f"Give 1-{MESSAGE_MAX_RECIPIENTS} recipient account ids (digits only)."
+            )
+        if len(set(ids)) != len(ids):
+            raise ValueError("A recipient is given more than once.")
+        topic, text = topic.strip(), text.strip()
+        if not topic or len(topic) > MESSAGE_MAX_TOPIC_LENGTH:
+            raise ValueError(f"The topic must be 1-{MESSAGE_MAX_TOPIC_LENGTH} characters.")
+        if not text or len(text) > MESSAGE_MAX_TEXT_LENGTH:
+            raise ValueError(f"The message must be 1-{MESSAGE_MAX_TEXT_LENGTH} characters.")
+        # A side-effect-free read sets the Wiadomości session up (with the
+        # usual one relogin), so the send itself never needs a second try.
+        if await self._call_messages(self.client.async_get_messages_me) is None:
+            raise LibrusMessageSendError(
+                "This account has no Wiadomości (messages module) - not sent.", sent=False
+            )
+        try:
+            payload = await self._limited(
+                lambda: self.client.async_send_message(ids, topic, text, reply_to=reply_to)
+            )
+        except LibrusSessionExpiredError as err:
+            raise LibrusMessageSendError(
+                f"Librus rejected the session (HTTP {err.status_code}) - not sent.", sent=False
+            ) from err
+        except LibrusUnexpectedResponseError as err:
+            refused = err.status_code is not None and 400 <= err.status_code < 500
+            raise LibrusMessageSendError(
+                f"Librus refused the message - not sent: {err}"
+                if refused
+                else f"Librus answered unexpectedly - the message may have gone out: {err}",
+                sent=False if refused else None,
+            ) from err
+        except LibrusConnectionError as err:
+            raise LibrusMessageSendError(
+                f"No answer from Librus - the message may have gone out: {err}", sent=None
+            ) from err
+        result = parsers.parse_sent_message(payload)
+        if result is None:
+            raise LibrusMessageSendError(
+                "Librus answered without confirming the message - it may have gone out.",
+                sent=None,
+            )
+        return result
+
+    async def reply_to_message(
+        self, message_id: str, text: str, *, mailbox: str = "inbox", topic: str | None = None
+    ) -> SentMessageData:
+        """**Replies** to a received message, in its thread (to its sender,
+        with "Re: <topic>" unless `topic` is given). Opens the message to
+        find the sender, which marks it read, as answering it in the app
+        does. Raises `LibrusMessageSendError` (`sent=False`) for a message
+        that doesn't accept replies or can't be found; otherwise as
+        `send_message`."""
+        original = await self.message(message_id, mailbox)
+        if original is None or not original.sender_id:
+            raise LibrusMessageSendError(
+                f"Message {message_id} or its sender wasn't found - not sent.", sent=False
+            )
+        if original.no_reply:
+            raise LibrusMessageSendError(
+                "This message doesn't accept replies (Librus marks it no-reply) - not sent.",
+                sent=False,
+            )
+        if topic is None:
+            topic = (
+                original.topic
+                if original.topic.lower().startswith("re:")
+                else f"Re: {original.topic}"
+            )
+        return await self.send_message(
+            [original.sender_id], topic[:MESSAGE_MAX_TOPIC_LENGTH], text, reply_to=message_id
+        )
+
+    async def withdraw_message(self, message_id: str) -> None:
+        """Withdraws a message you sent, while Librus still allows it
+        (`message(id, "outbox").can_withdraw`). Raises
+        `LibrusUnexpectedResponseError` when Librus refuses."""
+        await self._call_messages(lambda: self.client.async_withdraw_message(message_id))
 
     # ------------------------------------------------------------------
     # Everything at once

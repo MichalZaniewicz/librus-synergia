@@ -110,6 +110,7 @@ from .exceptions import (
     LibrusUnexpectedResponseError,
 )
 from .models import AttachmentFileData
+from .parsers import encode_message_text, encode_message_topic
 
 try:  # optional, faster JSON decoding when installed
     import orjson  # type: ignore[import-not-found, unused-ignore]
@@ -473,11 +474,13 @@ class LibrusApiClient:
         at) so a *different* endpoint that unexpectedly returns a list
         someday fails loudly instead of being mis-keyed under "data".
         """
-        if method not in ("GET", "POST"):
-            raise ValueError(f"Unsupported HTTP method {method!r} (only GET and POST)")
+        if method not in ("GET", "POST", "PUT"):
+            raise ValueError(f"Unsupported HTTP method {method!r} (only GET, POST and PUT)")
         try:
-            # get/post rather than request(): the test helpers mock those two.
-            send = self._session.post if method == "POST" else self._session.get
+            # get/post/put rather than request(): the test helpers mock these.
+            send = {"GET": self._session.get, "POST": self._session.post, "PUT": self._session.put}[
+                method
+            ]
             extra: dict[str, Any] = {"json": json_body} if json_body is not None else {}
             async with send(
                 url, headers={"User-Agent": USER_AGENT}, params=params, **extra, **self._timeout
@@ -939,6 +942,67 @@ class LibrusApiClient:
         UI.
         """
         return await self._async_request_url(f"{MESSAGES_BASE_URL}/{mailbox}/messages/{message_id}")
+
+    # ------------------------------------------------------------------
+    # Wiadomości: recipients and sending (CONFIRMED live 2026-10-12 for the
+    # recipient reads; the send/reply/withdraw requests follow Librus's own
+    # web app - see docs/messages.md)
+    # ------------------------------------------------------------------
+
+    async def async_get_messages_me(self) -> dict[str, Any]:
+        """The Wiadomości account (`accountId`, name, `groupName`). No side
+        effects - used to check the Wiadomości session before sending."""
+        return await self._async_request_url(f"{MESSAGES_BASE_URL}/me")
+
+    async def async_get_message_recipient_types(self) -> dict[str, Any]:
+        """Recipient groups this account can write to (`data.list`)."""
+        return await self._async_request_url(
+            f"{MESSAGES_BASE_URL}/receivers/types", params={"includeClass": "true"}
+        )
+
+    async def async_get_message_recipients(self, group: str) -> dict[str, Any]:
+        """The school staff in one recipient group (`receivers`)."""
+        return await self._async_request_url(
+            f"{MESSAGES_BASE_URL}/receivers/groups/school-employees",
+            params={"receiverType": group},
+        )
+
+    async def async_get_student_subject_teachers(self) -> dict[str, Any]:
+        """Teachers with the subjects they teach the student (`data`)."""
+        return await self._async_request_url(f"{MESSAGES_BASE_URL}/receivers/student-subjects")
+
+    async def async_send_message(
+        self,
+        account_ids: list[str],
+        topic: str,
+        text: str,
+        *,
+        reply_to: str | None = None,
+    ) -> dict[str, Any]:
+        """**Sends a message** - one POST, never retried here. With
+        `reply_to` (a received message's id) it goes out as a reply in that
+        thread (`messages/reply`). Use `Librus.send_message` /
+        `Librus.reply_to_message`, which check the session first and turn a
+        failure into `LibrusMessageSendError`."""
+        body: dict[str, Any] = {
+            "receivers": {"schoolReceivers": [{"accountId": str(a)} for a in account_ids]},
+            "topic": encode_message_topic(topic),
+            "content": encode_message_text(text),
+            "storageId": None,
+            "category": "normal",
+        }
+        url = f"{MESSAGES_BASE_URL}/messages"
+        if reply_to is not None:
+            body["originalMessageId"] = int(reply_to)
+            url = f"{MESSAGES_BASE_URL}/messages/reply"
+        return await self._async_request_url(url, method="POST", json_body=body)
+
+    async def async_withdraw_message(self, message_id: str) -> dict[str, Any]:
+        """Withdraws a message you sent (`PUT messages/<id>/withdrawal`) -
+        only while Librus allows it (`FullMessageData.can_withdraw`)."""
+        return await self._async_request_url(
+            f"{MESSAGES_BASE_URL}/messages/{int(message_id)}/withdrawal", method="PUT"
+        )
 
     async def async_download_message_attachment(
         self, attachment_id: str, message_id: str, *, max_wait_attempts: int = 5

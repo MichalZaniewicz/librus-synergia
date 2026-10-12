@@ -11,7 +11,7 @@ import json
 from http.cookies import SimpleCookie
 from typing import Any
 from unittest.mock import patch
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 import aiohttp
 from yarl import URL
@@ -117,11 +117,14 @@ class MockedSession:
         self.get_calls: dict[str, int] = {}
         self._queued_posts: dict[str, list[FakeResponse]] = {}
         self.post_calls: dict[str, int] = {}
+        self._puts: dict[str, FakeResponse] = {}
+        self.put_calls: dict[str, int] = {}
         # Keyword arguments of the latest request to each URL.
         self.kwargs: dict[str, dict[str, Any]] = {}
         self._patches = [
             patch.object(session, "get", side_effect=self._handle_get),
             patch.object(session, "post", side_effect=self._handle_post),
+            patch.object(session, "put", side_effect=self._handle_put),
         ]
 
     def get(self, url: str, **kwargs: Any) -> None:
@@ -144,7 +147,27 @@ class MockedSession:
         self._queued_posts[url] = [FakeResponse(**r) for r in responses]
         self.post_calls.setdefault(url, 0)
 
+    def put(self, url: str, **kwargs: Any) -> None:
+        self._puts[url] = FakeResponse(**kwargs)
+
+    def _handle_put(self, url: Any, **kwargs: Any) -> FakeResponse:
+        self.kwargs[str(url)] = kwargs
+        self.put_calls[str(url)] = self.put_calls.get(str(url), 0) + 1
+        response = self._puts.get(str(url))
+        if response is None:
+            raise AssertionError(f"Unexpected PUT {url}")
+        return response
+
     def _handle_get(self, url: Any, **kwargs: Any) -> FakeResponse:
+        # A response registered for the URL with its query string wins
+        # (several requests to one URL that differ only by a parameter).
+        params = kwargs.get("params")
+        if params:
+            with_query = f"{url}?{urlencode(params)}"
+            if with_query in self._gets:
+                self.kwargs[with_query] = kwargs
+                self.get_calls[with_query] = self.get_calls.get(with_query, 0) + 1
+                return self._gets[with_query]
         self.kwargs[str(url)] = kwargs
         self.get_calls[str(url)] = self.get_calls.get(str(url), 0) + 1
         queue = self._queued.get(str(url))

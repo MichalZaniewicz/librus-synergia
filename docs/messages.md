@@ -52,7 +52,8 @@ Base: `https://wiadomosci.librus.pl/api`
 | `GET /outbox/messages/receivers?page=1&limit=50` | ✅ `{"data": [{"receiverId", "receiverFirstName", "receiverLastName"}]}` |
 | `GET /outbox/messages/<id>` | ✅ A sent message in full: the same shape as an inbox message plus **`receivers`** - one entry per recipient with `firstName`, `lastName`, `group` and **`readed`** (when they read it), and `receiversCount` / `readedCount`. No side effect. `parse_message` fills `FullMessageData.receivers` (`name`, `group`, `read_date`). |
 | `GET /archive/outbox/messages` | ✅ Archived sent messages, the outbox item shape plus `total` and `archivingInProgress`. |
-| `GET /receivers/types?includeClass=true` | ✅ `{"data": {"defaultGroup", "list": [{"id", "name"}]}}` - the recipient groups a parent can write to (15 on the tested school). |
+| `GET /receivers/types?includeClass=true` | ✅ `{"data": {"defaultGroup", "list": [{"id", "name"}]}}` - the recipient groups a parent can write to (15 on the tested school: `tutors`, `teachers`, `headteachers`, `parentsCouncil`, `schoolParentsCouncil`, `librarian`, `otherSpecialist`, `admin`, `customGroups`, `secretary`, `counsellor`, `specialCounsellor`, `psychologist`, `typhlopedagogue`, `sadmin`). |
+| `GET /receivers/groups/school-employees?receiverType=<id>` | ✅ (2026-10-12) `{"receivers": [{"accountId", "label", "userId", "availabilityStatus": {"isAvailable", "returnAt"}}]}` - the staff in one group (104 teachers, 1 tutor, 1 secretary's office on the tested school). `accountId` is what a message is sent to; the `teacherIdentifier` of `receivers/student-subjects` is the same id (the tutor's matched). A group the school lists but has nobody in comes back empty. `Librus.message_recipients()` merges the groups in `MESSAGE_RECIPIENT_GROUPS` (parent councils, custom groups and Librus's support account left out) into `MessageRecipientData`, each person once, with the subjects they teach the student. |
 
 Mailboxes: `inbox`, `notes`, `alerts`, `substitutions`, `absences`,
 `justifications`, `trash`. ✅ For some accounts `alerts`/`substitutions`
@@ -61,6 +62,39 @@ return 404.
 ✅ A confirmation that an absence was justified arrived as an ordinary
 **inbox** message from the sender "e-Usprawiedliwienia", not in
 `justifications`.
+
+## Writing messages
+
+The requests below are how Librus's own web app sends, answers and
+withdraws messages (read from its public JavaScript, 2026-10-12). The
+recipient reads above are confirmed live; ❓ sending itself was **not**
+tried on the tested account. 📖 Librus answers a sent message with HTTP 201
+and `{"data": {"messageId": <int>, "status": "sent"}}`.
+
+| Request | Notes |
+|---|---|
+| `POST /messages` | 📖 JSON `{"receivers": {"schoolReceivers": [{"accountId": "<id>"}]}, "topic": <base64>, "content": <base64>, "storageId": null, "category": "normal"}`. Topic and content are UTF-8 base64; the reader shows the content as HTML with new lines as line breaks, so the library sends plain text HTML-escaped. Optional `ccs` / `bccs` (same shape as `receivers`) aren't used. `storageId` is for attachments (`POST /files-storage/attachments` + `POST /attachments`), not supported. |
+| `POST /messages/reply` | 📖 Same body plus **`originalMessageId`** (the received message's id, a number) - the reply goes into that message's thread. The app addresses it to the original sender (`senderId` of the full message) and prefills "Re: <topic>" and a quote. |
+| `PUT /messages/<id>/withdrawal` | 📖 Withdraws a message you sent. A full message has **`enableMessageWithdrawn`** (whether it still can be) and `isMessageWithdrawn`. |
+| `POST /messages/forwarding` | 📖 Forwarding, same body shape. Not supported. |
+
+✅ A full message (`GET /<mailbox>/messages/<id>`, checked on an already
+read one) also has `senderId` (a string, matching `inbox/messages/senders`),
+`senderGroupId`, `noReply` (0/1 - Librus's app hides "Reply" when set) and
+`enableMessageWithdrawn` / `isMessageWithdrawn`. `parse_message` fills
+`FullMessageData.sender_id`, `no_reply`, `can_withdraw` and `withdrawn`.
+✅ The list items have `otherNodeAccountId`, but it was `null` on the tested
+school, so the sender's id needs the full message.
+
+`Librus.send_message(account_ids, topic, text)` checks the Wiadomości
+session with a read (`GET /me`, with the usual recovery), then sends **once,
+never retried**. On anything but the confirmation it raises
+`LibrusMessageSendError` with `sent=False` (refused: a rejected session, a
+400/422 - nothing went out) or `sent=None` (unknown: a timeout, a 5xx, an
+answer without the confirmation - check the sent messages before trying
+again). `Librus.reply_to_message(message_id, text)` opens the message (which
+marks it read) to find its sender and refuses a `noReply` one.
+`Librus.withdraw_message(message_id)` withdraws a sent one.
 
 ## List item fields
 

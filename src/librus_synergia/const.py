@@ -267,3 +267,25 @@ MESSAGES_BASE_URL = f"https://{MESSAGES_DOMAIN}/api"
 # Seen in the bootstrap response body when this Librus module isn't enabled
 # for the account - not every school turns it on.
 MESSAGES_ACCESS_DENIED_MARKER = "Brak dostępu"
+# Recipient directory groups a message can go to, in the order a picker
+# shows them (the ids `receivers/types` lists). Parent councils, custom
+# groups and Librus's own support account are left out on purpose.
+MESSAGE_RECIPIENT_GROUPS = (
+    "tutors",
+    "teachers",
+    "headteachers",
+    "secretary",
+    "counsellor",
+    "specialCounsellor",
+    "psychologist",
+    "pedagogue",
+    "librarian",
+    "otherSpecialist",
+    "typhlopedagogue",
+    "admin",
+)
+# Limits for a message sent through this library (Librus's own form takes up
+# to 50 recipients; the text limits keep a runaway automation small).
+MESSAGE_MAX_RECIPIENTS = 50
+MESSAGE_MAX_TOPIC_LENGTH = 200
+MESSAGE_MAX_TEXT_LENGTH = 10000

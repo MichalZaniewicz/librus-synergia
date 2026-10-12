@@ -578,8 +578,8 @@ async def test_insufficient_scopes_is_not_a_dead_session() -> None:
 async def test_unknown_http_method_is_refused() -> None:
     async with aiohttp.ClientSession() as session:
         client = LibrusApiClient(session, "1234567u")
-        with pytest.raises(ValueError, match="PUT"):
-            await client._async_request_url(f"{DATA_BASE_URL}/Me", method="PUT")
+        with pytest.raises(ValueError, match="DELETE"):
+            await client._async_request_url(f"{DATA_BASE_URL}/Me", method="DELETE")
 
 
 async def test_download_page_without_redirect_and_without_logout_is_unexpected() -> None:

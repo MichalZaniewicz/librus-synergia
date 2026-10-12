@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.23
+
+### Added
+- **Writing messages.** `Librus.message_recipients()` lists who a message can
+  go to (the tutor, the teachers with the subjects they teach the student,
+  head teachers, the secretary's office and other staff) as
+  `MessageRecipientData`. `Librus.send_message(account_ids, topic, text)`
+  sends a message, `Librus.reply_to_message(message_id, text)` answers a
+  received one in its thread, `Librus.withdraw_message(message_id)` withdraws
+  one you sent. Sending is never retried; when Librus doesn't confirm,
+  `LibrusMessageSendError.sent` says whether the message went out (`False`)
+  or may have (`None`). The recipient lists were checked live; the send,
+  reply and withdraw requests follow Librus's own web app and haven't been
+  tried yet - see the API notes.
+- `FullMessageData.sender_id`, `no_reply`, `can_withdraw` and `withdrawn`.
+- `LibrusApiClient` requests can be `PUT` too (the withdrawal).
+
 ## 0.3.22
 
 ### Added

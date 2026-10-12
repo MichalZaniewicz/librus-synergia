@@ -108,3 +108,21 @@ class LibrusUnexpectedResponseError(LibrusError):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class LibrusMessageSendError(LibrusError):
+    """Sending (or replying to) a Wiadomości message did not get Librus's
+    confirmation. `sent` says what is known:
+
+    * `False` - Librus refused it before sending (a rejected session, a
+      400/422 answer, a message that doesn't accept replies): nothing went
+      out, it is safe to try again.
+    * `None` - unknown: the request may have reached Librus (a timeout, a
+      5xx, an answer without the expected confirmation). Check the sent
+      messages before trying again, or the message may go out twice.
+
+    Sending is never retried by this library."""
+
+    def __init__(self, message: str, *, sent: bool | None) -> None:
+        super().__init__(message)
+        self.sent = sent
