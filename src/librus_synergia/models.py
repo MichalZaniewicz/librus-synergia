@@ -499,6 +499,57 @@ class SchoolFileData:
 
 
 @dataclass(slots=True)
+class LibraryLendingData:
+    """A book lent to the student by the school library
+    (`EbiblioLendings`). CONFIRMED live 2026-10-12.
+
+    For the free textbooks lent for the whole year, `due_date` is a nominal
+    date two weeks after lending that has usually long passed - it is not a
+    real return deadline, so don't report a past one as overdue."""
+
+    id: str
+    title: str
+    author: str
+    kind: str
+    lent_on: str | None
+    due_date: str | None
+    extendable: bool
+
+
+@dataclass(slots=True)
+class PlanChangeData:
+    """One change to the class's plan (`Calendars/Substitutions`, the whole
+    school year). CONFIRMED live 2026-10-12.
+
+    A cancelled lesson carries only the `original_*` side; a substitution
+    also has `date`/`lesson_no`/`subject_id`/`teacher_id` - the lesson that
+    took its place."""
+
+    id: int
+    original_date: str | None
+    original_lesson_no: int | None
+    original_subject_id: int | None
+    original_teacher_id: int | None
+    original_classroom: str | None
+    cancelled: bool
+    shifted: bool
+    date: str | None = None
+    lesson_no: int | None = None
+    subject_id: int | None = None
+    teacher_id: int | None = None
+    classroom: str | None = None
+
+    @property
+    def kind(self) -> str:
+        """`cancelled`, `shifted` or `substitution`."""
+        if self.cancelled:
+            return "cancelled"
+        if self.shifted:
+            return "shifted"
+        return "substitution"
+
+
+@dataclass(slots=True)
 class AttachmentFileData:
     """A downloaded message attachment."""
 
@@ -682,6 +733,8 @@ class LibrusData:
     lesson_topics: list[LessonTopicData] = field(default_factory=list)
     school_trips: list[SchoolTripData] = field(default_factory=list)
     school_files: list[SchoolFileData] = field(default_factory=list)
+    library_lendings: list[LibraryLendingData] = field(default_factory=list)
+    plan_changes: list[PlanChangeData] = field(default_factory=list)
     homework_assignment_categories: dict[int, str] = field(default_factory=dict)
     parent_teacher_conferences: list[ParentTeacherConferenceData] = field(default_factory=list)
     # Message lists of a few secondary mailboxes ("substitutions",

@@ -150,6 +150,22 @@ def test_odd_lists_do_not_crash() -> None:
     assert parsers.parse_text_grades({"Grades": 5}) == []
     assert parsers.parse_realizations({"Realizations": {"a": 1}}) == []
     assert parsers.parse_school_trips({"Data": 3}) == []
+    assert parsers.parse_library_lendings({"lendings": "x"}) == []
+    assert parsers.parse_plan_changes({"Substitutions": 7}) == []
+    (lending,) = parsers.parse_library_lendings(
+        {"lendings": [{"identifier": 5, "title": None, "lendedAt": 3, "isExtendable": "yes"}]}
+    )
+    assert (lending.id, lending.title, lending.lent_on, lending.extendable) == (
+        "5",
+        "",
+        None,
+        False,
+    )
+    (change,) = parsers.parse_plan_changes(
+        {"Substitutions": [{"Id": "9", "OrgSubject": "x", "OrgClassroomSymbol": " ", "Date": 4}]}
+    )
+    assert change.original_subject_id is None and change.original_classroom is None
+    assert change.date is None and change.kind == "substitution"
     (justification,) = parsers.parse_justifications(
         {"data": [{"id": 1, "lessons": 4, "notifiedTeachers": "x"}]}
     )

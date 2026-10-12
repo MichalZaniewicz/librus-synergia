@@ -694,6 +694,76 @@ def test_parse_school_trips_and_files() -> None:
     ]
 
 
+def test_parse_library_lendings() -> None:
+    lendings = parsers.parse_library_lendings(
+        {
+            "lastSynchronizationTimestamp": 1788576177,
+            "lendings": [
+                {
+                    "identifier": "a-1",
+                    "type": "BOOK",
+                    "title": "Matematyka 7",
+                    "author": "Nowak Anna",
+                    "lendedAt": "2026-09-04",
+                    "dueDate": "2026-09-18",
+                    "isExtendable": False,
+                },
+                {"identifier": "b-2", "type": "BOOK", "title": "Lektura", "lendedAt": "2026-10-01"},
+                {"title": "no id"},
+            ],
+        }
+    )
+    assert [lending.id for lending in lendings] == ["b-2", "a-1"]
+    book = lendings[1]
+    assert (book.title, book.author, book.kind) == ("Matematyka 7", "Nowak Anna", "BOOK")
+    assert (book.lent_on, book.due_date, book.extendable) == ("2026-09-04", "2026-09-18", False)
+    assert lendings[0].author == "" and lendings[0].due_date is None
+
+
+def test_parse_plan_changes() -> None:
+    changes = parsers.parse_plan_changes(
+        {
+            "Substitutions": [
+                {
+                    "Id": 34824,
+                    "Date": "2026-09-16",
+                    "LessonNo": "3",
+                    "Teacher": {"Id": 11},
+                    "Subject": {"Id": 42013},
+                    "ClassroomSymbol": "h106",
+                    "OrgDate": "2026-09-16",
+                    "OrgLessonNo": "3",
+                    "OrgTeacher": {"Id": 12},
+                    "OrgSubject": {"Id": 42013},
+                    "OrgClassroomSymbol": "h106",
+                    "IsCancelled": False,
+                    "IsShifted": False,
+                },
+                {
+                    "Id": 18661,
+                    "ClassroomSymbol": None,
+                    "OrgDate": "2026-09-15",
+                    "OrgLessonNo": "2",
+                    "OrgTeacher": {"Id": 13},
+                    "OrgSubject": {"Id": 42004},
+                    "OrgClassroomSymbol": "233",
+                    "IsCancelled": True,
+                    "IsShifted": False,
+                },
+                {"OrgDate": "2026-09-20"},
+            ]
+        }
+    )
+    assert [c.id for c in changes] == [18661, 34824]
+    cancelled, substitution = changes
+    assert cancelled.kind == "cancelled" and cancelled.date is None
+    assert (cancelled.original_lesson_no, cancelled.original_subject_id) == (2, 42004)
+    assert cancelled.original_classroom == "233" and cancelled.classroom is None
+    assert substitution.kind == "substitution"
+    assert (substitution.teacher_id, substitution.original_teacher_id) == (11, 12)
+    assert (substitution.lesson_no, substitution.classroom) == (3, "h106")
+
+
 def test_class_register_number_from_user_record() -> None:
     assert parsers.parse_user_class_register_number({"User": {"ClassRegisterNumber": 25}}) == 25
     assert parsers.parse_user_class_register_number({}) is None

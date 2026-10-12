@@ -108,6 +108,8 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `lesson_topics()` | every lesson held, with its topic and subject (Realizations) |
 | `standing_timetable()` | the standing weekly plan (TimetableEntries); `parsers.plan_differences()` shows how a real week differs from it |
 | `school_trips()`, `school_files()` | school trips; documents the school shares with parents |
+| `library_lendings()` | books lent by the school library (title, author, dates) |
+| `plan_changes()` | every cancelled lesson and substitution this school year, not just the two weeks a timetable covers |
 | `homework_categories()` | homework assignment categories |
 | `download_attachment(attachment_id, message_id)` | a message attachment (name, type, bytes), without opening the message |
 | `download_homework_attachment(attachment_id)` | a homework attachment (name, type, bytes) |

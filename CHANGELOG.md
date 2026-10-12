@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.22
+
+### Added
+- **School library lendings.** `Librus.library_lendings()` /
+  `LibrusApiClient.async_get_library_lendings()` /
+  `parsers.parse_library_lendings()` read `EbiblioLendings`: each book's
+  title, author, type, lending date, due date and whether it can be
+  extended. For free textbooks lent for the whole year the due date is a
+  nominal date that has usually passed - not a real deadline.
+- **Every plan change of the school year.** `Librus.plan_changes()` /
+  `async_get_plan_changes()` / `parsers.parse_plan_changes()` read
+  `Calendars/Substitutions`: each cancelled lesson and substitution since the
+  year started (`PlanChangeData`, `kind` = `cancelled` / `substitution` /
+  `shifted`), with the original lesson and, for a substitution, the lesson
+  that replaced it. A timetable fetch only covers two weeks.
+- `fetch_all()` fills the new `LibrusData.library_lendings` and
+  `LibrusData.plan_changes`.
+
 ## 0.3.21
 
 ### Fixed

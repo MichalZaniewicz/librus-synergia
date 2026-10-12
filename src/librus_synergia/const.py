@@ -227,6 +227,10 @@ ENDPOINT_REALIZATIONS = "Realizations"
 # School trips and documents the school shares (lowercase `Data` envelope).
 ENDPOINT_SCHOOL_TRIPS = "SchoolTrips"
 ENDPOINT_SCHOOL_FILES = "SchoolFiles"
+# Books lent by the school library, and every change to the class's plan
+# this school year - CONFIRMED live 2026-10-12.
+ENDPOINT_LIBRARY_LENDINGS = "EbiblioLendings"
+ENDPOINT_PLAN_CHANGES = "Calendars/Substitutions"
 # The standing weekly plan (weekday + lesson number, valid between two
 # dates), CONFIRMED live 2026-10-08.
 ENDPOINT_TIMETABLE_ENTRIES = "TimetableEntries"

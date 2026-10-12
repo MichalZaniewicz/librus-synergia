@@ -57,7 +57,7 @@ poll downloads the full list.
 | `SchoolInfo`, `Duties`, `WhatsNew` | ✅ 401 `Insufficient scopes` - not a dead session; the client raises `LibrusUnexpectedResponseError(status_code=401)` for it (only on the data gateway, and only when the body could be read), so nothing logs in again |
 | `StudentDuty` | ✅ 403 `Account not have access to resource` |
 | `ExamResult`, `DescriptiveLessonGrades` | ✅ 404 |
-| `EbiblioLendings` | ✅ 200 (2026-10-12) - **books lent to the student by the school library**: `{"lastSynchronizationTimestamp": <epoch s>, "lendings": [...]}`, each lending `identifier` (a UUID), `type` (`"BOOK"`), `title`, `author`, `lendedAt`, `dueDate`, `isExtendable`. On the tested account all 12 were the year's free textbooks, lent at the start of September with a `dueDate` two weeks later that had long passed and `isExtendable: false` - so for textbooks `dueDate` is not a real return date; don't treat a past one as overdue. Not used by the library yet. |
+| `EbiblioLendings` | ✅ 200 (2026-10-12) - **books lent to the student by the school library**: `{"lastSynchronizationTimestamp": <epoch s>, "lendings": [...]}`, each lending `identifier` (a UUID), `type` (`"BOOK"`), `title`, `author`, `lendedAt`, `dueDate`, `isExtendable`. On the tested account all 12 were the year's free textbooks, lent at the start of September with a `dueDate` two weeks later that had long passed and `isExtendable: false` - so for textbooks `dueDate` is not a real return date; don't treat a past one as overdue. Parsed by `parse_library_lendings` into `LibraryLendingData` (`Librus.library_lendings()`, most recently lent first). |
 | `SpecialAchievement` | ✅ 404, but it lists `SpecialAchievement/Types`: 200 `{"data": [{"id", "name"}]}` - the school's categories of special achievements (sports competitions, volunteering, subject olympiads, ...). `.../Student`, `.../Students`, `.../Achievements` are 404, so the student's own achievements weren't found in the API. |
 | `Calendars/Stats` | ✅ 200 `{"Stats": [{"Id", "MinDate", "MaxDate"}]}` - the class calendar's id and the school year's first and last day. `Calendars/<that Id>` lists ids (no content) of `SchoolFreeDays`, `TeacherFreeDays`, `HomeWorks`, ... for the whole year. |
 | `Calendars/Substitutions` | ✅ 200 - see [Timetable](#timetable). |
@@ -238,8 +238,9 @@ GET Timetables?weekStart=YYYY-MM-DD      (a Monday)
   **substitution** also has `Date`, `LessonNo`, `Teacher`, `Subject` - the
   lesson that took its place. `IsShifted` was never `true` there.
   `Calendars/Substitutions/<Id>` returns one entry under `Substitution`.
-  `?dateFrom=&dateTo=` is a 400 - the list can't be narrowed. Not used by
-  the library yet.
+  `?dateFrom=&dateTo=` is a 400 - the list can't be narrowed. Parsed by
+  `parse_plan_changes` into `PlanChangeData` (`kind` = `cancelled` /
+  `substitution` / `shifted`, oldest first; `Librus.plan_changes()`).
 - ✅ A substitution lesson often has **no classroom**, even when the regular
   lesson in that slot has one.
 - ✅ A substitution lesson also carries **the original lesson**: `OrgDate`,

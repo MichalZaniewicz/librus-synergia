@@ -32,6 +32,7 @@ from .models import (
     JustificationData,
     LessonData,
     LessonTopicData,
+    LibraryLendingData,
     LuckyNumberData,
     MeData,
     MessageData,
@@ -39,6 +40,7 @@ from .models import (
     NoteData,
     OriginalLessonData,
     ParentTeacherConferenceData,
+    PlanChangeData,
     PlanDifferenceData,
     PointGradeCategoryData,
     PointGradeData,
@@ -1316,6 +1318,67 @@ def parse_school_files(payload: dict[str, Any]) -> list[SchoolFileData]:
             )
         )
     result.sort(key=lambda f: f.added or "", reverse=True)
+    return result
+
+
+def parse_library_lendings(payload: dict[str, Any]) -> list[LibraryLendingData]:
+    """`EbiblioLendings` -> books lent by the school library, most recently
+    lent first. Lowercase fields inside a `lendings` list. CONFIRMED live
+    2026-10-12."""
+    result: list[LibraryLendingData] = []
+    for item in _items(payload.get("lendings")):
+        if not isinstance(item, dict) or item.get("identifier") is None:
+            continue
+        result.append(
+            LibraryLendingData(
+                id=str(item["identifier"]),
+                title=_text(item.get("title")).strip(),
+                author=_text(item.get("author")).strip(),
+                kind=_text(item.get("type")).strip(),
+                lent_on=item.get("lendedAt") if isinstance(item.get("lendedAt"), str) else None,
+                due_date=item.get("dueDate") if isinstance(item.get("dueDate"), str) else None,
+                extendable=item.get("isExtendable") is True,
+            )
+        )
+    result.sort(key=lambda lending: (lending.lent_on or "", lending.title), reverse=True)
+    return result
+
+
+def _symbol(value: Any) -> str | None:
+    text = _text(value).strip()
+    return text or None
+
+
+def parse_plan_changes(payload: dict[str, Any]) -> list[PlanChangeData]:
+    """`Calendars/Substitutions` -> every change to the class's plan this
+    school year, oldest first. CONFIRMED live 2026-10-12."""
+    result: list[PlanChangeData] = []
+    for item in _items(payload.get("Substitutions")):
+        if not isinstance(item, dict):
+            continue
+        change_id = as_int(item.get("Id"))
+        if change_id is None:
+            continue
+        org_date = item.get("OrgDate")
+        new_date = item.get("Date")
+        result.append(
+            PlanChangeData(
+                id=change_id,
+                original_date=org_date if isinstance(org_date, str) else None,
+                original_lesson_no=as_int(item.get("OrgLessonNo")),
+                original_subject_id=_ref(item, "OrgSubject"),
+                original_teacher_id=_ref(item, "OrgTeacher"),
+                original_classroom=_symbol(item.get("OrgClassroomSymbol")),
+                cancelled=item.get("IsCancelled") is True,
+                shifted=item.get("IsShifted") is True,
+                date=new_date if isinstance(new_date, str) else None,
+                lesson_no=as_int(item.get("LessonNo")),
+                subject_id=_ref(item, "Subject"),
+                teacher_id=_ref(item, "Teacher"),
+                classroom=_symbol(item.get("ClassroomSymbol")),
+            )
+        )
+    result.sort(key=lambda c: (c.original_date or c.date or "", c.original_lesson_no or 0, c.id))
     return result
 
 

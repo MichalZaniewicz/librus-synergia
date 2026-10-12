@@ -379,6 +379,8 @@ async def test_point_grades_switched_off_by_the_school_are_not_requested() -> No
         ("justifications", "Justifications"),
         ("school_trips", "SchoolTrips"),
         ("school_files", "SchoolFiles"),
+        ("library_lendings", "EbiblioLendings"),
+        ("plan_changes", "Calendars/Substitutions"),
         ("parent_teacher_conferences", "ParentTeacherConferences"),
         ("text_grades", "BaseTextGrades"),
         ("behaviour_grades", "BehaviourGrades/Points"),

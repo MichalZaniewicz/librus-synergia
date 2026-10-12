@@ -52,12 +52,14 @@ from .const import (
     ENDPOINT_HOMEWORKS,
     ENDPOINT_JUSTIFICATIONS,
     ENDPOINT_LESSONS,
+    ENDPOINT_LIBRARY_LENDINGS,
     ENDPOINT_LUCKY_NUMBERS,
     ENDPOINT_ME,
     ENDPOINT_NOTE_CATEGORIES,
     ENDPOINT_NOTES,
     ENDPOINT_PARENT_TEACHER_CONFERENCES,
     ENDPOINT_PARTIAL_GRADES,
+    ENDPOINT_PLAN_CHANGES,
     ENDPOINT_POINT_GRADE_CATEGORIES,
     ENDPOINT_POINT_GRADES,
     ENDPOINT_REALIZATIONS,
@@ -768,6 +770,16 @@ class LibrusApiClient:
 
     async def async_get_school_files(self) -> dict[str, Any]:
         return await self._async_request(ENDPOINT_SCHOOL_FILES)
+
+    async def async_get_library_lendings(self) -> dict[str, Any]:
+        """Books lent by the school library, see `parse_library_lendings`."""
+        return await self._async_request(ENDPOINT_LIBRARY_LENDINGS)
+
+    async def async_get_plan_changes(self) -> dict[str, Any]:
+        """Every change to the class's plan this school year (cancelled
+        lessons and substitutions), see `parse_plan_changes`. Can't be
+        narrowed by date."""
+        return await self._async_request(ENDPOINT_PLAN_CHANGES)
 
     async def async_get_timetable_entries(self) -> dict[str, Any]:
         """The standing weekly plan, see `parse_timetable_entries`."""

@@ -54,12 +54,14 @@ from .models import (
     JustificationData,
     LessonData,
     LessonTopicData,
+    LibraryLendingData,
     LibrusData,
     LuckyNumberData,
     MeData,
     MessageData,
     NoteData,
     ParentTeacherConferenceData,
+    PlanChangeData,
     PointGradeData,
     SchoolData,
     SchoolFileData,
@@ -1306,6 +1308,28 @@ class Librus:
             [],
         )
 
+    async def library_lendings(self) -> list[LibraryLendingData]:
+        """Books lent by the school library. Empty when Librus refuses the
+        module (remembered for a day). For textbooks lent for the year,
+        `due_date` is not a real deadline (see `LibraryLendingData`)."""
+        return await self._module(
+            "EbiblioLendings",
+            lambda: self._parsed(
+                self.client.async_get_library_lendings, parsers.parse_library_lendings
+            ),
+            [],
+        )
+
+    async def plan_changes(self) -> list[PlanChangeData]:
+        """Every change to the class's plan this school year - cancelled
+        lessons and substitutions, also the ones long past. Empty when
+        Librus refuses the module (remembered for a day)."""
+        return await self._module(
+            "Calendars/Substitutions",
+            lambda: self._parsed(self.client.async_get_plan_changes, parsers.parse_plan_changes),
+            [],
+        )
+
     async def homework_categories(self) -> dict[int, str]:
         """Homework assignment categories (`HomeworkAssignmentData.category_id`)."""
         return await self._reference(
@@ -1524,6 +1548,8 @@ class Librus:
             topics_payload,
             trips,
             files,
+            lendings,
+            plan_changes,
             homework_categories,
             conferences,
             lesson_subjects,
@@ -1550,6 +1576,8 @@ class Librus:
             optional("lesson_topics", self._call(self.client.async_get_realizations), {}),
             optional("school_trips", self.school_trips(), []),
             optional("school_files", self.school_files(), []),
+            optional("library_lendings", self.library_lendings(), []),
+            optional("plan_changes", self.plan_changes(), []),
             optional("homework_assignment_categories", self.homework_categories(), {}),
             optional("parent_teacher_conferences", self.parent_teacher_conferences(), []),
             optional("lesson_subjects", self._lesson_subjects(), {}),
@@ -1588,6 +1616,8 @@ class Librus:
             text_grades=text_grades,
             school_trips=trips,
             school_files=files,
+            library_lendings=lendings,
+            plan_changes=plan_changes,
             homework_assignment_categories=homework_categories,
             parent_teacher_conferences=conferences,
             lesson_subjects=lesson_subjects,
