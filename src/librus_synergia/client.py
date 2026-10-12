@@ -1014,9 +1014,7 @@ class LibrusApiClient:
         if reply_to is not None:
             body["originalMessageId"] = int(reply_to)
             url = f"{MESSAGES_BASE_URL}/messages/reply"
-        return await self._async_request_url(
-            url, method="POST", json_body=body, lenient_body=True
-        )
+        return await self._async_request_url(url, method="POST", json_body=body, lenient_body=True)
 
     async def async_send_message_checked(
         self,
