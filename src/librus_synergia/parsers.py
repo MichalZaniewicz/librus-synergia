@@ -11,12 +11,19 @@ from __future__ import annotations
 import base64
 import math
 import re
+from dataclasses import replace
 from datetime import date, timedelta
 from html import escape as html_escape
 from html import unescape as html_unescape
 from typing import Any
 
-from .const import MESSAGE_MAX_RECIPIENTS, MESSAGE_MAX_TEXT_LENGTH, MESSAGE_MAX_TOPIC_LENGTH
+from .const import (
+    MESSAGE_MAX_RECIPIENTS,
+    MESSAGE_MAX_TEXT_LENGTH,
+    MESSAGE_MAX_TOPIC_LENGTH,
+    MESSAGE_RECIPIENT_GROUPS,
+    MESSAGE_RECIPIENT_SKIPPED_GROUPS,
+)
 from .models import (
     AttachmentData,
     AttendanceData,
@@ -1942,6 +1949,53 @@ def parse_sent_message(payload: dict[str, Any]) -> SentMessageData | None:
             break
         message_id = None
     return SentMessageData(message_id=message_id, status=status)
+
+
+def message_recipient_groups(types_payload: dict[str, Any]) -> list[str]:
+    """The recipient groups to read for this account: the ones
+    `receivers/types` offers, MESSAGE_RECIPIENT_GROUPS first (in that
+    order), then any other offered group in Librus's order - schools and
+    kindergartens offer their own (e.g. `speechTherapist`, seen live
+    2026-10-12) - except MESSAGE_RECIPIENT_SKIPPED_GROUPS."""
+    offered = [
+        str(item.get("id"))
+        for item in _items(_obj(types_payload.get("data")).get("list"))
+        if isinstance(item, dict) and item.get("id")
+    ]
+    known = [group for group in MESSAGE_RECIPIENT_GROUPS if group in offered]
+    others = [
+        group
+        for group in dict.fromkeys(offered)
+        if group not in MESSAGE_RECIPIENT_GROUPS and group not in MESSAGE_RECIPIENT_SKIPPED_GROUPS
+    ]
+    return known + others
+
+
+def _name_words(name: str) -> frozenset[str]:
+    return frozenset(name.casefold().replace(",", " ").split())
+
+
+def mark_class_tutor(
+    recipients: list[MessageRecipientData], tutor_name: str | None, group_name: str = "Wychowawcy"
+) -> list[MessageRecipientData]:
+    """When Librus offers no `tutors` group (a kindergarten account, seen
+    live 2026-10-12), find the class tutor - known by name from the class
+    (`Classes.ClassTutor` / the kindergarten group) - among the other
+    recipients and move them to the `tutors` group. Names match by their
+    words, whatever the order ("Nowak Anna" = "Anna Nowak"). Unchanged
+    when a tutors group exists, the name is unknown, or it matches nobody
+    or more than one person."""
+    if not tutor_name or any(r.group == "tutors" for r in recipients):
+        return recipients
+    words = _name_words(tutor_name)
+    if not words:
+        return recipients
+    matches = [i for i, r in enumerate(recipients) if _name_words(r.name) == words]
+    if len(matches) != 1:
+        return recipients
+    index = matches[0]
+    tutor = replace(recipients[index], group="tutors", group_name=group_name)
+    return [tutor, *recipients[:index], *recipients[index + 1 :]]
 
 
 def parse_message_recipients(

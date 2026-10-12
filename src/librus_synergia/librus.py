@@ -31,9 +31,6 @@ from .client import (
     OnSessionUpdate,
     _with_download_deadline,
 )
-from .const import (
-    MESSAGE_RECIPIENT_GROUPS,
-)
 from .exceptions import (
     LibrusConnectionError,
     LibrusError,
@@ -1472,27 +1469,33 @@ class Librus:
         """Who a message can be sent to: the tutor, the teachers (each with
         the subjects they teach the student), the head teachers, the
         secretary's office and the school's other staff groups - whatever
-        `receivers/types` offers this account from `MESSAGE_RECIPIENT_GROUPS`.
-        Empty when the school has no messages module. Read-only."""
+        `receivers/types` offers this account (see
+        `parsers.message_recipient_groups`). A group Librus refuses is left
+        out. Empty when the school has no messages module. Read-only. A
+        kindergarten account has no tutors group: `parsers.mark_class_tutor`
+        moves the tutor there by name."""
         types = await self._call_messages(self.client.async_get_message_recipient_types)
         if types is None:
             return []
-        offered = {
-            str(item.get("id"))
-            for item in (types.get("data") or {}).get("list") or []
-            if isinstance(item, dict)
-        }
-        groups = [group for group in MESSAGE_RECIPIENT_GROUPS if group in offered]
+        groups = parsers.message_recipient_groups(types)
 
-        async def one(group: str) -> tuple[str, dict[str, Any]]:
-            payload = await self._call_messages(
-                lambda: self.client.async_get_message_recipients(group)
-            )
-            return group, payload or {}
+        # The session was just checked by the types read: a group (or the
+        # subject list) Librus refuses is left out, without a relogin - a
+        # kindergarten account gets a 403 on `receivers/student-subjects`.
+        async def one(group: str) -> tuple[str, dict[str, Any] | None]:
+            try:
+                return group, await self.client.async_get_message_recipients(group)
+            except LibrusError:
+                return group, None
 
         results = await asyncio.gather(*(one(group) for group in groups))
-        subjects = await self._call_messages(self.client.async_get_student_subject_teachers)
-        return parsers.parse_message_recipients(types, dict(results), subjects)
+        try:
+            subjects: dict[str, Any] | None = await self.client.async_get_student_subject_teachers()
+        except LibrusError:
+            subjects = None
+        return parsers.parse_message_recipients(
+            types, {g: p for g, p in results if p is not None}, subjects
+        )
 
     async def send_message(
         self,

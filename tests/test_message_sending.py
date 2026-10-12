@@ -242,6 +242,76 @@ async def test_message_recipients_merge_groups_and_subjects() -> None:
     assert f"{groups_url}?receiverType=parentsCouncil" not in mocked.get_calls
 
 
+async def test_kindergarten_recipients_any_offered_group_and_no_relogin() -> None:
+    # Seen live 2026-10-12 on a kindergarten account: no tutors group, a
+    # "speechTherapist" group, and a 403 on the subject list.
+    from librus_synergia.const import API_OAUTH_AUTHORIZATION_URL
+
+    groups_url = f"{MESSAGES_BASE_URL}/receivers/groups/school-employees"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            _ready(mocked, session)
+            mocked.get(
+                f"{MESSAGES_BASE_URL}/receivers/types",
+                json_data={
+                    "data": {
+                        "list": [
+                            {"id": "speechTherapist", "name": "Logopeda"},
+                            {"id": "teachers", "name": "Nauczyciele"},
+                            {"id": "customGroups", "name": "Grupy odbiorców"},
+                            {"id": "sadmin", "name": "Pomoc techniczna"},
+                        ]
+                    }
+                },
+            )
+            mocked.get(
+                f"{groups_url}?receiverType=teachers",
+                json_data={"receivers": [{"accountId": "12", "label": "Kowal Jan"}]},
+            )
+            mocked.get(
+                f"{groups_url}?receiverType=speechTherapist",
+                json_data={"receivers": [{"accountId": "14", "label": "Lis Ewa"}]},
+            )
+            mocked.get(f"{MESSAGES_BASE_URL}/receivers/student-subjects", status=403, json_data={})
+            librus = Librus("1234567u", "pw", session=session)
+            recipients = await librus.message_recipients()
+            assert mocked.post_calls[API_OAUTH_AUTHORIZATION_URL] == 1  # no relogin
+            assert f"{groups_url}?receiverType=sadmin" not in mocked.get_calls
+            assert f"{groups_url}?receiverType=customGroups" not in mocked.get_calls
+    assert [(r.account_id, r.group, r.group_name) for r in recipients] == [
+        ("12", "teachers", "Nauczyciele"),
+        ("14", "speechTherapist", "Logopeda"),
+    ]
+
+    marked = parsers.mark_class_tutor(recipients, "Jan Kowal")
+    assert [(r.account_id, r.group, r.group_name) for r in marked] == [
+        ("12", "tutors", "Wychowawcy"),
+        ("14", "speechTherapist", "Logopeda"),
+    ]
+    assert parsers.mark_class_tutor(recipients, "Ktoś Inny") == recipients
+    assert parsers.mark_class_tutor(marked, "Lis Ewa") == marked  # tutors exist
+
+
+def test_message_recipient_groups_order() -> None:
+    types = {
+        "data": {
+            "list": [
+                {"id": "librarian"},
+                {"id": "speechTherapist"},
+                {"id": "therapist"},
+                {"id": "tutors"},
+                {"id": "parentsCouncil"},
+            ]
+        }
+    }
+    assert parsers.message_recipient_groups(types) == [
+        "tutors",
+        "speechTherapist",
+        "librarian",
+        "therapist",
+    ]
+
+
 def test_full_message_reply_and_withdraw_fields() -> None:
     message = parsers.parse_message(
         {

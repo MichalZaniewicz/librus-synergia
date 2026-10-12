@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.25
+
+### Changed
+- **Message recipients come from every group Librus offers the account**,
+  not only a fixed list: `MESSAGE_RECIPIENT_GROUPS` first (now also
+  `speechTherapist`, "Logopeda", seen on a kindergarten account), then any
+  other offered group, except `MESSAGE_RECIPIENT_SKIPPED_GROUPS` (parent
+  councils, custom groups, Librus's support account).
+  `parsers.message_recipient_groups(types)` picks them.
+- A group or the subject list that Librus refuses is left out instead of
+  failing the whole list, and never causes a password login (a kindergarten
+  account gets HTTP 403 on `receivers/student-subjects`).
+
+### Added
+- `parsers.mark_class_tutor(recipients, tutor_name)`: a kindergarten account
+  has no tutors group; this moves the class tutor, matched by name in any
+  word order, into `tutors`.
+
 ## 0.3.24
 
 ### Fixed

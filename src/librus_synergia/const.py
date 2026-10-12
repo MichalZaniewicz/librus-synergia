@@ -268,8 +268,9 @@ MESSAGES_BASE_URL = f"https://{MESSAGES_DOMAIN}/api"
 # for the account - not every school turns it on.
 MESSAGES_ACCESS_DENIED_MARKER = "Brak dostępu"
 # Recipient directory groups a message can go to, in the order a picker
-# shows them (the ids `receivers/types` lists). Parent councils, custom
-# groups and Librus's own support account are left out on purpose.
+# shows them (the ids `receivers/types` lists). Any other group a school
+# offers is read too, after these (see `parsers.message_recipient_groups`),
+# except MESSAGE_RECIPIENT_SKIPPED_GROUPS.
 MESSAGE_RECIPIENT_GROUPS = (
     "tutors",
     "teachers",
@@ -279,10 +280,16 @@ MESSAGE_RECIPIENT_GROUPS = (
     "specialCounsellor",
     "psychologist",
     "pedagogue",
+    "speechTherapist",
     "librarian",
     "otherSpecialist",
     "typhlopedagogue",
     "admin",
+)
+# Offered groups that aren't school staff: parent councils, the user's own
+# custom groups and Librus's support account.
+MESSAGE_RECIPIENT_SKIPPED_GROUPS = frozenset(
+    {"parentsCouncil", "schoolParentsCouncil", "customGroups", "sadmin"}
 )
 # Limits for a message sent through this library (Librus's own form takes up
 # to 50 recipients; the text limits keep a runaway automation small).
