@@ -805,12 +805,14 @@ class MessageRecipientData:
 
 @dataclass(slots=True)
 class SentMessageData:
-    """Librus's confirmation of a sent message: `POST messages` (or
-    `messages/reply`) answered 201 with `{"data": {"messageId", "status":
-    "sent"}}`. Means Librus accepted it, not that anyone read it."""
+    """Librus accepted a sent message: `POST messages` (or `messages/reply`)
+    answered with a success status. A new message's answer is 201 `{"data":
+    {"messageId", "status": "sent"}}`; a reply's answer doesn't carry the
+    id (CONFIRMED live 2026-10-12: the reply went out), so `message_id` is
+    then None. Means Librus accepted it, not that anyone read it."""
 
-    message_id: int
-    status: str
+    message_id: int | None
+    status: str | None
 
 
 @dataclass(slots=True)

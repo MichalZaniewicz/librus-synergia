@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.24
+
+### Fixed
+- **A reply was reported as "may have been sent" although it went out.**
+  Librus answers a reply (`messages/reply`) with a success status but without
+  the `{"messageId", "status": "sent"}` confirmation a new message gets.
+  Like Librus's own web app, any success answer without `errors` now counts
+  as sent - also one with an empty body. `SentMessageData.message_id` (and
+  `status`) can be None. Confirmed live: the reply arrived and its new lines
+  came through.
+- The shape of the answer to a send (keys and numbers, no text) is logged at
+  debug level.
+
 ## 0.3.23
 
 ### Added

@@ -67,14 +67,19 @@ return 404.
 
 The requests below are how Librus's own web app sends, answers and
 withdraws messages (read from its public JavaScript, 2026-10-12). The
-recipient reads above are confirmed live; ❓ sending itself was **not**
-tried on the tested account. 📖 Librus answers a sent message with HTTP 201
-and `{"data": {"messageId": <int>, "status": "sent"}}`.
+recipient reads above are confirmed live. ✅ A **reply** was sent live
+(2026-10-12): it went out, its new lines came through as line breaks, and it
+showed up in the outbox. Librus's answer to the reply was a success status
+**without** a message id, so the library - like Librus's own web app, which
+ignores the answer's body - treats any success answer without `errors` as
+sent (`SentMessageData.message_id` is then None). 📖 A new message's answer is
+HTTP 201 `{"data": {"messageId": <int>, "status": "sent"}}`. ❓ A new message
+and a withdrawal haven't been tried live yet.
 
 | Request | Notes |
 |---|---|
 | `POST /messages` | 📖 JSON `{"receivers": {"schoolReceivers": [{"accountId": "<id>"}]}, "topic": <base64>, "content": <base64>, "storageId": null, "category": "normal"}`. Topic and content are UTF-8 base64; the reader shows the content as HTML with new lines as line breaks, so the library sends plain text HTML-escaped. Optional `ccs` / `bccs` (same shape as `receivers`) aren't used. `storageId` is for attachments (`POST /files-storage/attachments` + `POST /attachments`), not supported. |
-| `POST /messages/reply` | 📖 Same body plus **`originalMessageId`** (the received message's id, a number) - the reply goes into that message's thread. The app addresses it to the original sender (`senderId` of the full message) and prefills "Re: <topic>" and a quote. |
+| `POST /messages/reply` | ✅ Same body plus **`originalMessageId`** (the received message's id, a number) - the reply goes into that message's thread. The app addresses it to the original sender (`senderId` of the full message) and prefills "Re: <topic>" and a quote. |
 | `PUT /messages/<id>/withdrawal` | 📖 Withdraws a message you sent. A full message has **`enableMessageWithdrawn`** (whether it still can be) and `isMessageWithdrawn`. |
 | `POST /messages/forwarding` | 📖 Forwarding, same body shape. Not supported. |
 
@@ -90,9 +95,10 @@ school, so the sender's id needs the full message.
 session with a read (`GET /me`, with the usual recovery), then sends **once,
 never retried**. On anything but the confirmation it raises
 `LibrusMessageSendError` with `sent=False` (refused: a rejected session, a
-400/422 - nothing went out) or `sent=None` (unknown: a timeout, a 5xx, an
-answer without the confirmation - check the sent messages before trying
-again). The low-level `LibrusApiClient.async_send_message_checked` does the
+400/422 - nothing went out) or `sent=None` (unknown: a timeout, a 5xx, a
+success status whose answer reports errors - check the sent messages before
+trying again). The shape of each answer (keys and numbers, no text) goes to
+the `librus_synergia.client` debug log. The low-level `LibrusApiClient.async_send_message_checked` does the
 same single send and check on a session the caller has already set up.
 `Librus.reply_to_message(message_id, text)` opens the message (which
 marks it read) to find its sender and refuses a `noReply` one.

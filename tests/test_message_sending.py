@@ -76,15 +76,43 @@ async def test_rejected_session_on_send_means_not_sent_and_no_retry() -> None:
             assert mocked.post_calls[SEND_URL] == 1
 
 
-async def test_answer_without_confirmation_is_unknown() -> None:
+async def test_success_answer_with_errors_is_unknown() -> None:
     async with aiohttp.ClientSession() as session:
         with MockedSession(session) as mocked:
             _ready(mocked, session)
-            mocked.post(SEND_URL, status=200, json_data={"data": {}})
+            mocked.post(SEND_URL, status=200, json_data={"errors": [{"code": "X"}]})
             librus = Librus("1234567u", "pw", session=session)
             with pytest.raises(LibrusMessageSendError) as err:
                 await librus.send_message(["1"], "T", "Text")
             assert err.value.sent is None
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [{"data": {}}, {}, {"data": True}, None],
+)
+async def test_success_answer_without_an_id_means_sent(answer: dict | None) -> None:
+    # A reply's answer has no message id (CONFIRMED live 2026-10-12: the
+    # reply went out while the old check called it unconfirmed). None = an
+    # empty, non-JSON body.
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            _ready(mocked, session)
+            if answer is None:
+                mocked.post(SEND_URL, status=200, text_data="")
+            else:
+                mocked.post(SEND_URL, status=200, json_data=answer)
+            librus = Librus("1234567u", "pw", session=session)
+            result = await librus.send_message(["1"], "T", "Text")
+            assert result.message_id is None
+            assert mocked.post_calls[SEND_URL] == 1
+
+
+def test_parse_sent_message_shapes() -> None:
+    assert parsers.parse_sent_message(SENT).message_id == 987
+    assert parsers.parse_sent_message({"data": {"id": "12"}}).message_id == 12
+    assert parsers.parse_sent_message({"messageId": 5}).message_id == 5
+    assert parsers.parse_sent_message({"data": {"status": "failed"}}) is None
 
 
 @pytest.mark.parametrize(

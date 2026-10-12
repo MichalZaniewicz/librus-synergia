@@ -1918,14 +1918,29 @@ def encode_message_text(text: str) -> str:
 
 
 def parse_sent_message(payload: dict[str, Any]) -> SentMessageData | None:
-    """Librus's confirmation of a sent message (`{"data": {"messageId",
-    "status": "sent"}}`). None for anything else - the message may or may
+    """Librus's answer to a send that came back with a success status. Like
+    Librus's own web app, any such answer means the message was accepted -
+    a new message's answer is `{"data": {"messageId", "status": "sent"}}`,
+    a reply's (CONFIRMED live 2026-10-12) has no message id. None only when
+    the answer reports errors or a failed status - the message may or may
     not have gone out."""
-    data = _obj(payload.get("data"))
-    message_id = as_int(data.get("messageId"))
-    status = data.get("status")
-    if message_id is None or message_id <= 0 or status != "sent":
+    if payload.get("errors"):
         return None
+    data = _obj(payload.get("data"))
+    status = data.get("status", payload.get("status"))
+    status = status if isinstance(status, str) and status else None
+    if status is not None and status.casefold() in {"error", "failed", "rejected"}:
+        return None
+    message_id = None
+    for candidate in (
+        data.get("messageId"),
+        data.get("id"),
+        payload.get("messageId"),
+    ):
+        message_id = as_int(candidate)
+        if message_id is not None and message_id > 0:
+            break
+        message_id = None
     return SentMessageData(message_id=message_id, status=status)
 
 

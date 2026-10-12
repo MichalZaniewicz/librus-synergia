@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -129,6 +130,8 @@ except ImportError:  # pragma: no cover - depends on the environment
     def _json_loads(raw: bytes) -> Any:
         return json.loads(raw)
 
+
+_LOGGER = logging.getLogger(__name__)
 
 _CAPTCHA_MARKERS = ("captcha", "recaptcha", "g-recaptcha", "hcaptcha")
 
@@ -465,6 +468,7 @@ class LibrusApiClient:
         array_envelope_key: str | None = None,
         method: str = "GET",
         json_body: dict[str, Any] | None = None,
+        lenient_body: bool = False,
     ) -> dict[str, Any]:
         """Same as `_async_request` but for a fully-formed URL, not just an
         endpoint under the Synergia gateway - needed for the separate
@@ -479,6 +483,10 @@ class LibrusApiClient:
         list is treated as an unexpected response, not silently guessed
         at) so a *different* endpoint that unexpectedly returns a list
         someday fails loudly instead of being mis-keyed under "data".
+
+        `lenient_body`: a success answer whose body isn't a JSON object
+        (empty, text, a list) comes back as `{}` instead of raising - for
+        writes, where the status is what counts.
         """
         if method not in ("GET", "POST", "PUT"):
             raise ValueError(f"Unsupported HTTP method {method!r} (only GET, POST and PUT)")
@@ -540,9 +548,14 @@ class LibrusApiClient:
                         f"Session rejected on {url} (HTTP {response.status}).",
                         status_code=response.status,
                     )
-                payload = await self._async_read_json(
-                    response, array_envelope_key=array_envelope_key
-                )
+                try:
+                    payload = await self._async_read_json(
+                        response, array_envelope_key=array_envelope_key
+                    )
+                except LibrusUnexpectedResponseError:
+                    if not (lenient_body and response.status < 400):
+                        raise
+                    payload = {}
                 if response.status >= 400:
                     raise LibrusUnexpectedResponseError(
                         f"HTTP {response.status} from {url}: {payload!r}",
@@ -1001,7 +1014,9 @@ class LibrusApiClient:
         if reply_to is not None:
             body["originalMessageId"] = int(reply_to)
             url = f"{MESSAGES_BASE_URL}/messages/reply"
-        return await self._async_request_url(url, method="POST", json_body=body)
+        return await self._async_request_url(
+            url, method="POST", json_body=body, lenient_body=True
+        )
 
     async def async_send_message_checked(
         self,
@@ -1014,8 +1029,10 @@ class LibrusApiClient:
         """**Sends a message** once and checks Librus's answer: returns its
         confirmation, or raises `LibrusMessageSendError` - `sent=False` when
         Librus refused it (a rejected session, a 4xx: nothing went out),
-        `sent=None` when it may have gone out (a timeout, a 5xx, an answer
-        without the confirmation). `ValueError` for an invalid message,
+        `sent=None` when it may have gone out (a timeout, a 5xx, a success
+        status whose answer reports errors). Any other success answer means
+        sent, as in Librus's own web app - a reply's answer has no message
+        id. `ValueError` for an invalid message,
         before any request. Never retried. Call it on a working Wiadomości
         session (`Librus.send_message` checks it with a read first)."""
         ids, topic, text = validate_message(account_ids, topic, text)
@@ -1037,10 +1054,11 @@ class LibrusApiClient:
             raise LibrusMessageSendError(
                 f"No answer from Librus - the message may have gone out: {err}", sent=None
             ) from err
+        _LOGGER.debug("Librus answered the send with %s", _shape(payload))
         result = parse_sent_message(payload)
         if result is None:
             raise LibrusMessageSendError(
-                "Librus answered without confirming the message - it may have gone out.",
+                "Librus answered with errors - the message may have gone out.",
                 sent=None,
             )
         return result
@@ -1361,6 +1379,20 @@ def _raise_retry_later(status: int, url: str) -> NoReturn:
         )
     reason = "too many requests" if status == 429 else "gateway error"
     raise LibrusConnectionError(f"HTTP {status} ({reason}) from {url}.", status_code=status)
+
+
+def _shape(value: Any, depth: int = 0) -> Any:
+    """An answer's structure for the debug log: keys, numbers and flags,
+    but no text (a send's answer could echo the message)."""
+    if depth > 3:
+        return "..."
+    if isinstance(value, dict):
+        return {str(k): _shape(v, depth + 1) for k, v in list(value.items())[:20]}
+    if isinstance(value, list):
+        return [_shape(value[0], depth + 1)] if value else []
+    if isinstance(value, str):
+        return f"<str {len(value)}>"
+    return value
 
 
 async def _drain_small_body(response: aiohttp.ClientResponse) -> None:
