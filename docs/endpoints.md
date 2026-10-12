@@ -21,9 +21,10 @@ Two things apply to every endpoint:
   side. A record whose `Id` isn't a usable number (other than the known
   string ids above) is skipped by the parsers.
 
-❓ Whether any endpoint supports conditional requests (`ETag` /
-`If-None-Match`, `Last-Modified` / `If-Modified-Since`) is unknown - not
-tested yet.
+✅ No conditional requests: `Grades`, `Attendances`, `Me`, `Timetables`
+and `SchoolNotices` send no `ETag` and no `Last-Modified`, and every data
+response carries `Cache-Control: no-store` (checked live 2026-10-12). Each
+poll downloads the full list.
 
 ## Identity and school
 
@@ -56,6 +57,23 @@ tested yet.
 | `SchoolInfo`, `Duties`, `WhatsNew` | ✅ 401 `Insufficient scopes` - not a dead session; the client raises `LibrusUnexpectedResponseError(status_code=401)` for it (only on the data gateway, and only when the body could be read), so nothing logs in again |
 | `StudentDuty` | ✅ 403 `Account not have access to resource` |
 | `ExamResult`, `DescriptiveLessonGrades` | ✅ 404 |
+| `EbiblioLendings` | ✅ 200 (2026-10-12) - **books lent to the student by the school library**: `{"lastSynchronizationTimestamp": <epoch s>, "lendings": [...]}`, each lending `identifier` (a UUID), `type` (`"BOOK"`), `title`, `author`, `lendedAt`, `dueDate`, `isExtendable`. On the tested account all 12 were the year's free textbooks, lent at the start of September with a `dueDate` two weeks later that had long passed and `isExtendable: false` - so for textbooks `dueDate` is not a real return date; don't treat a past one as overdue. Not used by the library yet. |
+| `SpecialAchievement` | ✅ 404, but it lists `SpecialAchievement/Types`: 200 `{"data": [{"id", "name"}]}` - the school's categories of special achievements (sports competitions, volunteering, subject olympiads, ...). `.../Student`, `.../Students`, `.../Achievements` are 404, so the student's own achievements weren't found in the API. |
+| `Calendars/Stats` | ✅ 200 `{"Stats": [{"Id", "MinDate", "MaxDate"}]}` - the class calendar's id and the school year's first and last day. `Calendars/<that Id>` lists ids (no content) of `SchoolFreeDays`, `TeacherFreeDays`, `HomeWorks`, ... for the whole year. |
+| `Calendars/Substitutions` | ✅ 200 - see [Timetable](#timetable). |
+| `PointGrades/Comments`, `DescriptiveGrades/Text/Categories` | ✅ 200, empty (`Comments` / `Categories`) on the tested account. |
+| `PlannedLessons/ThematicTeaching` | ✅ 200 `{"Realizations": []}` |
+| `FileTransferRestrictions` | ✅ 200 `{"Restrictions": {"upload", "upload_3g"}}` |
+| `Regulations` | ✅ 200 `{"Data": [{"module", "acceptanceDate", "url"}]}` - when the terms of use were accepted |
+| `Help` | ✅ 200 `{"Help": [...]}` - Synergia's help articles (HTML `Description`, visibility per role) |
+| `DeclarationOfAvailability` | ✅ 404 "Could not find any valid declaration to display." |
+| `PushChanges` | ✅ 400 `FilterInvalidValue` - needs a registered push device |
+| `PushDevices` | ✅ 400 `InvalidRequest` |
+| `Employees`, `PersonalDataAccesses`, `ReceivingPush`, `UserAppActivity`, `Motions/PaymentDeclaration`, `Motions/File` | ✅ 405 (`Employees` lists `Employees/Substitutions`, itself 404) |
+| `StudentInsurances`, `NotificationCenterDeferrals`, `SilentNight`, `SchoolNicknames`, `Educators/EducatorCalendarTasks` (+`/Types`), `Motions` (+`/Activities`, `/Available`, `/Charges`) | ✅ 403 |
+| `SchoolReceiveMessage`, `SchoolAgreement`, `IdwUser`, `OsinInfo` | ✅ 401 `Insufficient scopes` |
+| `Surveys/Details`, `ClientVersion`, `Auth/AutoLoginToken` | ✅ 404 |
+| `OneRoster` | ✅ 500 with an empty HTML body |
 
 ## Lookups (cache ~24 h)
 
@@ -206,8 +224,22 @@ GET Timetables?weekStart=YYYY-MM-DD      (a Monday)
 - Ids inside lessons are **strings**.
 - ✅ **HTTP 403** here can mean *the school hasn't published the timetable
   yet*, which is not a session problem (see [errors](errors.md)).
-- ✅ `Substitutions` returns 403 for parent/student accounts. Substitutions
-  only show up as `IsSubstitutionClass` on lessons.
+- ✅ `Substitutions` returns 403 for parent/student accounts. In a
+  timetable week, substitutions only show up as `IsSubstitutionClass` on
+  lessons.
+- ✅ **`Calendars/Substitutions`** (root `Substitutions`, checked live
+  2026-10-12 on a parent account) is readable, though: every change to the
+  class's plan **since the start of the school year**, not just the two
+  weeks a timetable fetch covers (31 entries a month and a half in, the
+  oldest from mid-September). Each entry has `Id`, `OrgDate`,
+  `OrgLessonNo` (a string), `OrgTeacher`/`OrgSubject` (refs with `Id`),
+  `OrgClassroomSymbol`, `ClassroomSymbol`, `IsCancelled`, `IsShifted`. A
+  **cancelled** lesson has only the `Org*` side (12 of 31); a
+  **substitution** also has `Date`, `LessonNo`, `Teacher`, `Subject` - the
+  lesson that took its place. `IsShifted` was never `true` there.
+  `Calendars/Substitutions/<Id>` returns one entry under `Substitution`.
+  `?dateFrom=&dateTo=` is a 400 - the list can't be narrowed. Not used by
+  the library yet.
 - ✅ A substitution lesson often has **no classroom**, even when the regular
   lesson in that slot has one.
 - ✅ A substitution lesson also carries **the original lesson**: `OrgDate`,

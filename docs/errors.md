@@ -80,6 +80,6 @@ for a day. For "what's new" polling use `fetch_changes()` (about 10
 requests, no comment texts), and don't poll more often than every ~15
 minutes.
 
-❓ Whether any endpoint honours `ETag` / `If-None-Match` or
-`Last-Modified` / `If-Modified-Since` (which would let a poll skip unchanged
-data) is unknown - not tested yet.
+✅ There is no way to skip unchanged data: data responses send no `ETag`
+and no `Last-Modified` and are marked `Cache-Control: no-store` (checked
+live 2026-10-12), so every poll downloads the full lists.
