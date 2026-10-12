@@ -15,6 +15,9 @@
   reply and withdraw requests follow Librus's own web app and haven't been
   tried yet - see the API notes.
 - `FullMessageData.sender_id`, `no_reply`, `can_withdraw` and `withdrawn`.
+- `LibrusApiClient.async_send_message_checked` sends once and checks the
+  answer the same way, for callers that manage the session themselves;
+  `parsers.validate_message` and `parsers.reply_topic` are its helpers.
 - `LibrusApiClient` requests can be `PUT` too (the withdrawal).
 
 ## 0.3.22

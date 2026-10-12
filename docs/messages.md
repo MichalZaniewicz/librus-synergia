@@ -92,7 +92,9 @@ never retried**. On anything but the confirmation it raises
 `LibrusMessageSendError` with `sent=False` (refused: a rejected session, a
 400/422 - nothing went out) or `sent=None` (unknown: a timeout, a 5xx, an
 answer without the confirmation - check the sent messages before trying
-again). `Librus.reply_to_message(message_id, text)` opens the message (which
+again). The low-level `LibrusApiClient.async_send_message_checked` does the
+same single send and check on a session the caller has already set up.
+`Librus.reply_to_message(message_id, text)` opens the message (which
 marks it read) to find its sender and refuses a `noReply` one.
 `Librus.withdraw_message(message_id)` withdraws a sent one.
 

@@ -105,12 +105,18 @@ from .exceptions import (
     LibrusCaptchaRequiredError,
     LibrusConnectionError,
     LibrusInvalidCredentialsError,
+    LibrusMessageSendError,
     LibrusServerMaintenanceError,
     LibrusSessionExpiredError,
     LibrusUnexpectedResponseError,
 )
-from .models import AttachmentFileData
-from .parsers import encode_message_text, encode_message_topic
+from .models import AttachmentFileData, SentMessageData
+from .parsers import (
+    encode_message_text,
+    encode_message_topic,
+    parse_sent_message,
+    validate_message,
+)
 
 try:  # optional, faster JSON decoding when installed
     import orjson  # type: ignore[import-not-found, unused-ignore]
@@ -996,6 +1002,48 @@ class LibrusApiClient:
             body["originalMessageId"] = int(reply_to)
             url = f"{MESSAGES_BASE_URL}/messages/reply"
         return await self._async_request_url(url, method="POST", json_body=body)
+
+    async def async_send_message_checked(
+        self,
+        account_ids: list[str],
+        topic: str,
+        text: str,
+        *,
+        reply_to: str | None = None,
+    ) -> SentMessageData:
+        """**Sends a message** once and checks Librus's answer: returns its
+        confirmation, or raises `LibrusMessageSendError` - `sent=False` when
+        Librus refused it (a rejected session, a 4xx: nothing went out),
+        `sent=None` when it may have gone out (a timeout, a 5xx, an answer
+        without the confirmation). `ValueError` for an invalid message,
+        before any request. Never retried. Call it on a working Wiadomości
+        session (`Librus.send_message` checks it with a read first)."""
+        ids, topic, text = validate_message(account_ids, topic, text)
+        try:
+            payload = await self.async_send_message(ids, topic, text, reply_to=reply_to)
+        except LibrusSessionExpiredError as err:
+            raise LibrusMessageSendError(
+                f"Librus rejected the session (HTTP {err.status_code}) - not sent.", sent=False
+            ) from err
+        except LibrusUnexpectedResponseError as err:
+            refused = err.status_code is not None and 400 <= err.status_code < 500
+            raise LibrusMessageSendError(
+                f"Librus refused the message - not sent: {err}"
+                if refused
+                else f"Librus answered unexpectedly - the message may have gone out: {err}",
+                sent=False if refused else None,
+            ) from err
+        except LibrusConnectionError as err:
+            raise LibrusMessageSendError(
+                f"No answer from Librus - the message may have gone out: {err}", sent=None
+            ) from err
+        result = parse_sent_message(payload)
+        if result is None:
+            raise LibrusMessageSendError(
+                "Librus answered without confirming the message - it may have gone out.",
+                sent=None,
+            )
+        return result
 
     async def async_withdraw_message(self, message_id: str) -> dict[str, Any]:
         """Withdraws a message you sent (`PUT messages/<id>/withdrawal`) -

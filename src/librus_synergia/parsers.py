@@ -16,6 +16,7 @@ from html import escape as html_escape
 from html import unescape as html_unescape
 from typing import Any
 
+from .const import MESSAGE_MAX_RECIPIENTS, MESSAGE_MAX_TEXT_LENGTH, MESSAGE_MAX_TOPIC_LENGTH
 from .models import (
     AttachmentData,
     AttendanceData,
@@ -1876,6 +1877,31 @@ def _flag(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true")
     return bool(value)
+
+
+def validate_message(recipients: list[str], topic: str, text: str) -> tuple[list[str], str, str]:
+    """Check a message before sending: 1-MESSAGE_MAX_RECIPIENTS distinct
+    numeric account ids, a topic and a text within their limits. Returns
+    them cleaned (ids as strings, topic and text stripped); `ValueError`
+    otherwise."""
+    ids = [str(r).strip() for r in recipients]
+    if not ids or len(ids) > MESSAGE_MAX_RECIPIENTS or not all(i.isdigit() for i in ids):
+        raise ValueError(f"Give 1-{MESSAGE_MAX_RECIPIENTS} recipient account ids (digits only).")
+    if len(set(ids)) != len(ids):
+        raise ValueError("A recipient is given more than once.")
+    topic, text = topic.strip(), text.strip()
+    if not topic or len(topic) > MESSAGE_MAX_TOPIC_LENGTH:
+        raise ValueError(f"The topic must be 1-{MESSAGE_MAX_TOPIC_LENGTH} characters.")
+    if not text or len(text) > MESSAGE_MAX_TEXT_LENGTH:
+        raise ValueError(f"The message must be 1-{MESSAGE_MAX_TEXT_LENGTH} characters.")
+    return ids, topic, text
+
+
+def reply_topic(topic: str) -> str:
+    """ "Re: <topic>" for a reply (not doubled), within the topic limit."""
+    topic = topic.strip()
+    reply = topic if topic.lower().startswith("re:") else f"Re: {topic}"
+    return reply[:MESSAGE_MAX_TOPIC_LENGTH]
 
 
 def encode_message_topic(topic: str) -> str:

@@ -32,9 +32,6 @@ from .client import (
     _with_download_deadline,
 )
 from .const import (
-    MESSAGE_MAX_RECIPIENTS,
-    MESSAGE_MAX_TEXT_LENGTH,
-    MESSAGE_MAX_TOPIC_LENGTH,
     MESSAGE_RECIPIENT_GROUPS,
 )
 from .exceptions import (
@@ -1513,51 +1510,16 @@ class Librus:
         out (False = no, None = unknown; check the sent messages before
         trying again). `ValueError` for an empty or oversized message.
         `reply_to_message` is the way to answer a received message."""
-        ids = [str(r).strip() for r in recipients]
-        if not ids or len(ids) > MESSAGE_MAX_RECIPIENTS or not all(i.isdigit() for i in ids):
-            raise ValueError(
-                f"Give 1-{MESSAGE_MAX_RECIPIENTS} recipient account ids (digits only)."
-            )
-        if len(set(ids)) != len(ids):
-            raise ValueError("A recipient is given more than once.")
-        topic, text = topic.strip(), text.strip()
-        if not topic or len(topic) > MESSAGE_MAX_TOPIC_LENGTH:
-            raise ValueError(f"The topic must be 1-{MESSAGE_MAX_TOPIC_LENGTH} characters.")
-        if not text or len(text) > MESSAGE_MAX_TEXT_LENGTH:
-            raise ValueError(f"The message must be 1-{MESSAGE_MAX_TEXT_LENGTH} characters.")
+        ids, topic, text = parsers.validate_message(recipients, topic, text)
         # A side-effect-free read sets the Wiadomości session up (with the
         # usual one relogin), so the send itself never needs a second try.
         if await self._call_messages(self.client.async_get_messages_me) is None:
             raise LibrusMessageSendError(
                 "This account has no Wiadomości (messages module) - not sent.", sent=False
             )
-        try:
-            payload = await self._limited(
-                lambda: self.client.async_send_message(ids, topic, text, reply_to=reply_to)
-            )
-        except LibrusSessionExpiredError as err:
-            raise LibrusMessageSendError(
-                f"Librus rejected the session (HTTP {err.status_code}) - not sent.", sent=False
-            ) from err
-        except LibrusUnexpectedResponseError as err:
-            refused = err.status_code is not None and 400 <= err.status_code < 500
-            raise LibrusMessageSendError(
-                f"Librus refused the message - not sent: {err}"
-                if refused
-                else f"Librus answered unexpectedly - the message may have gone out: {err}",
-                sent=False if refused else None,
-            ) from err
-        except LibrusConnectionError as err:
-            raise LibrusMessageSendError(
-                f"No answer from Librus - the message may have gone out: {err}", sent=None
-            ) from err
-        result = parsers.parse_sent_message(payload)
-        if result is None:
-            raise LibrusMessageSendError(
-                "Librus answered without confirming the message - it may have gone out.",
-                sent=None,
-            )
-        return result
+        return await self._limited(
+            lambda: self.client.async_send_message_checked(ids, topic, text, reply_to=reply_to)
+        )
 
     async def reply_to_message(
         self, message_id: str, text: str, *, mailbox: str = "inbox", topic: str | None = None
@@ -1578,14 +1540,11 @@ class Librus:
                 "This message doesn't accept replies (Librus marks it no-reply) - not sent.",
                 sent=False,
             )
-        if topic is None:
-            topic = (
-                original.topic
-                if original.topic.lower().startswith("re:")
-                else f"Re: {original.topic}"
-            )
         return await self.send_message(
-            [original.sender_id], topic[:MESSAGE_MAX_TOPIC_LENGTH], text, reply_to=message_id
+            [original.sender_id],
+            parsers.reply_topic(original.topic) if topic is None else topic,
+            text,
+            reply_to=message_id,
         )
 
     async def withdraw_message(self, message_id: str) -> None:
