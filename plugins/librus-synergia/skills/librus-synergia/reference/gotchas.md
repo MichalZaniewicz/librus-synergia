@@ -104,7 +104,10 @@ them - this file is what your code must still know.
 - `lucky_number().day` can be the **next** school day - compare it with
   today before saying "today's number".
 - Free days: `date_from` / `date_to` are inclusive. `free_days()` returns
-  school-wide days and the student's class only.
+  school-wide days and the student's class only. A class entry is named
+  after its type ("Wycieczka"); an entry with `whole_day=False` frees only
+  lessons `lesson_no_from`-`lesson_no_to` - don't treat that day as a day
+  off.
 - `library_lendings()`: for free textbooks `due_date` is not a real
   deadline (books stay until the end of the year).
 - Behaviour grade: show `display` / `name` ("bdb", "bardzo dobre"); some

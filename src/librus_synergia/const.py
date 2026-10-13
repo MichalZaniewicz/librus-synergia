@@ -180,6 +180,8 @@ ENDPOINT_CLASSES = "Classes"
 ENDPOINT_VIRTUAL_CLASSES = "VirtualClasses"
 ENDPOINT_SCHOOL_FREE_DAYS = "SchoolFreeDays"
 ENDPOINT_CLASS_FREE_DAYS = "ClassFreeDays"
+# Names of the `ClassFreeDays` types ("Wycieczka", ...). CONFIRMED live.
+ENDPOINT_CLASS_FREE_DAY_TYPES = "Calendars/ClassFreeDays/Types"
 ENDPOINT_HOMEWORK_CATEGORIES = "HomeWorks/Categories"
 ENDPOINT_PARENT_TEACHER_CONFERENCES = "ParentTeacherConferences"
 ENDPOINT_GRADE_TYPES = "Grades/Types"

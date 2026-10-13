@@ -227,6 +227,12 @@ def _has_unknown(ids: list[Any], known: dict[Any, Any], ignore: set[Any]) -> boo
     return False
 
 
+def _class_id(item: dict[str, Any]) -> int | None:
+    """A `ClassFreeDays` entry's `Class.Id` (None without one)."""
+    klass = item.get("Class")
+    return parsers.as_int(klass.get("Id")) if isinstance(klass, dict) else None
+
+
 class Librus:
     """A signed-in Librus Synergia account (one parent/student login).
 
@@ -1245,8 +1251,29 @@ class Librus:
                 own = await self.school_class()
             except LibrusError:
                 own = None
+        # A class entry has no name, only a type ("Wycieczka", ...) - the
+        # type list is asked for only when such an entry is there.
+        own_id = own.id if own else None
+        type_names: dict[int, str] = {}
+        if isinstance(items, list) and any(
+            isinstance(item, dict)
+            and not item.get("Name")
+            and isinstance(item.get("Type"), dict)
+            and (own_id is None or _class_id(item) in (None, own_id))
+            for item in items
+        ):
+            type_names = await self._module(
+                "ClassFreeDays/Types",
+                lambda: self._parsed(
+                    self.client.async_get_class_free_day_types, parsers.parse_free_day_types
+                ),
+                {},
+            )
         return parsers.parse_free_days(school, "SchoolFreeDays") + parsers.parse_free_days(
-            klass, "ClassFreeDays", class_id=own.id if own else None
+            klass,
+            "ClassFreeDays",
+            class_id=own_id,
+            type_names=type_names,
         )
 
     async def text_grades(self) -> list[TextGradeData]:

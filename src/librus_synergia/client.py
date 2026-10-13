@@ -36,6 +36,7 @@ from .const import (
     ENDPOINT_BEHAVIOUR_GRADES_POINTS,
     ENDPOINT_BEHAVIOUR_GRADES_POINTS_CATEGORIES,
     ENDPOINT_BEHAVIOUR_GRADES_POINTS_COMMENTS,
+    ENDPOINT_CLASS_FREE_DAY_TYPES,
     ENDPOINT_CLASS_FREE_DAYS,
     ENDPOINT_CLASSES,
     ENDPOINT_CLASSROOMS,
@@ -749,6 +750,10 @@ class LibrusApiClient:
 
     async def async_get_class_free_days(self) -> dict[str, Any]:
         return await self._async_request(ENDPOINT_CLASS_FREE_DAYS)
+
+    async def async_get_class_free_day_types(self) -> dict[str, Any]:
+        """`{"Types": [{"Id", "Name"}]}` - names for `ClassFreeDays[].Type`."""
+        return await self._async_request(ENDPOINT_CLASS_FREE_DAY_TYPES)
 
     async def async_get_homework_categories(self) -> dict[str, Any]:
         return await self._async_request(ENDPOINT_HOMEWORK_CATEGORIES)

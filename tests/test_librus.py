@@ -770,3 +770,98 @@ async def test_free_days_unknown_class_keeps_everything() -> None:
             mocked.get(f"{DATA_BASE_URL}/Classes", status=404, json_data={})
             librus = Librus("1234567u", "pw", session=session)
             assert [d.id for d in await librus.free_days()] == [2]
+
+
+async def test_free_days_named_after_their_type_and_partial_days() -> None:
+    """A class entry has no Name, only a Type (named in
+    Calendars/ClassFreeDays/Types); LessonNoFrom/To free only some lessons."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/SchoolFreeDays", json_data={"SchoolFreeDays": []})
+            mocked.get(
+                f"{DATA_BASE_URL}/ClassFreeDays",
+                json_data={
+                    "ClassFreeDays": [
+                        {
+                            "Id": 2,
+                            "Class": {"Id": 42},
+                            "Type": {"Id": 7},
+                            "DateFrom": "2026-10-23",
+                            "DateTo": "2026-10-23",
+                        },
+                        {
+                            "Id": 3,
+                            "Class": {"Id": 42},
+                            "Type": {"Id": 8},
+                            "DateFrom": "2026-10-30",
+                            "DateTo": "2026-10-30",
+                            "LessonNoFrom": "3",
+                            "LessonNoTo": 5,
+                        },
+                    ]
+                },
+            )
+            mocked.get(f"{DATA_BASE_URL}/Classes", json_data={"Class": {"Id": 42}})
+            mocked.get(
+                f"{DATA_BASE_URL}/Calendars/ClassFreeDays/Types",
+                json_data={
+                    "Types": [{"Id": 7, "Name": "Wycieczka"}, {"Id": 8, "Name": "Rekolekcje"}]
+                },
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            trip, retreat = await librus.free_days()
+            assert (trip.name, trip.type_id, trip.whole_day) == ("Wycieczka", 7, True)
+            assert (retreat.name, retreat.lesson_no_from, retreat.lesson_no_to) == (
+                "Rekolekcje",
+                3,
+                5,
+            )
+            assert retreat.whole_day is False
+
+
+async def test_free_day_types_not_asked_when_entries_have_names() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/SchoolFreeDays", json_data={"SchoolFreeDays": []})
+            mocked.get(
+                f"{DATA_BASE_URL}/ClassFreeDays",
+                json_data={
+                    "ClassFreeDays": [
+                        {
+                            "Id": 2,
+                            "Name": "Ferie klasowe",
+                            "DateFrom": "2026-10-23",
+                            "DateTo": "2026-10-23",
+                        },
+                    ]
+                },
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            assert [d.name for d in await librus.free_days()] == ["Ferie klasowe"]
+            assert f"{DATA_BASE_URL}/Calendars/ClassFreeDays/Types" not in mocked.get_calls
+
+
+async def test_refused_free_day_types_leave_the_name_empty() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/SchoolFreeDays", json_data={"SchoolFreeDays": []})
+            mocked.get(
+                f"{DATA_BASE_URL}/ClassFreeDays",
+                json_data={
+                    "ClassFreeDays": [
+                        {
+                            "Id": 2,
+                            "Type": {"Id": 7},
+                            "DateFrom": "2026-10-23",
+                            "DateTo": "2026-10-23",
+                        },
+                    ]
+                },
+            )
+            mocked.get(f"{DATA_BASE_URL}/Calendars/ClassFreeDays/Types", status=403, json_data={})
+            librus = Librus("1234567u", "pw", session=session)
+            (day,) = await librus.free_days()
+            assert day.name == "" and day.type_id == 7

@@ -1776,13 +1776,19 @@ def parse_class(payload: dict[str, Any]) -> ClassData | None:
 
 
 def parse_free_days(
-    payload: dict[str, Any], root_key: str, *, class_id: int | None = None
+    payload: dict[str, Any],
+    root_key: str,
+    *,
+    class_id: int | None = None,
+    type_names: dict[int, str] | None = None,
 ) -> list[FreeDayData]:
     """`SchoolFreeDays` / `ClassFreeDays`. CONFIRMED on a user's account
     (2026-10-13): `ClassFreeDays` lists the free days of EVERY class in the
     school, each with its `Class.Id` - with `class_id` (the student's
     `ClassData.id`) the other classes' days are left out. An entry without a
-    class is kept."""
+    class is kept. A class entry has no `Name`; `type_names`
+    (`parse_free_day_types`) names it after its `Type`. `LessonNoFrom` /
+    `LessonNoTo` mark an entry that frees only those lessons."""
     items = payload.get(root_key)
     if not isinstance(items, list):
         return []
@@ -1795,15 +1801,28 @@ def parse_free_days(
             item_class = as_int(_obj(item.get("Class")).get("Id"))
             if item_class is not None and item_class != class_id:
                 continue
+        type_id = as_int(_obj(item.get("Type")).get("Id"))
+        name = _text(item.get("Name"))
+        if not name and type_id is not None:
+            name = (type_names or {}).get(type_id, "")
         free_days.append(
             FreeDayData(
                 id=day_id,
-                name=item.get("Name") or "",
+                name=name,
                 date_from=item["DateFrom"],
                 date_to=item["DateTo"],
+                type_id=type_id,
+                lesson_no_from=as_int(item.get("LessonNoFrom")),
+                lesson_no_to=as_int(item.get("LessonNoTo")),
             )
         )
     return free_days
+
+
+def parse_free_day_types(payload: dict[str, Any]) -> dict[int, str]:
+    """`Calendars/ClassFreeDays/Types`: type id -> name ("Wycieczka",
+    "Próbny egzamin ósmoklasisty."). CONFIRMED live (2026-10-09)."""
+    return parse_id_name_map(payload, ("Types",))
 
 
 def parse_id_name_map(payload: dict[str, Any], list_keys: tuple[str, ...]) -> dict[int, str]:

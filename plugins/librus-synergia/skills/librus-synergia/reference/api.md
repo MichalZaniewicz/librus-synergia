@@ -100,7 +100,7 @@ unless a field is a `date`. Ids are `int`, except where noted in
 - `LessonTopicData`: id, date, lesson_no, lesson_id, topic, is_trip, teacher_id, subject_id
 - `HomeworkEventData` (agenda entry): id, date, content, category_id, subject_id, time_from
 - `HomeworkAssignmentData`: id, topic, text, teacher_id, date, due_date, category_id, lesson_id, attachments
-- `FreeDayData`: id, name, date_from, date_to
+- `FreeDayData`: id, name (a class entry: its type's name, e.g. "Wycieczka"), date_from, date_to, type_id, lesson_no_from, lesson_no_to; `whole_day` (False when only some lessons are off)
 - `ParentTeacherConferenceData`: id, topic, teacher_id, date, time
 - `SchoolTripData`: id, destination, route, transport, date_from, date_to, coordinator
 - `SchoolFileData`: id, name, added, download_path

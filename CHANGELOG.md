@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.29
+
+### Added
+- **Class free days get a name.** A `ClassFreeDays` entry has no `Name`,
+  only a type; `Librus.free_days()` now names it after its type ("Wycieczka",
+  "Rekolekcje"...) from `Calendars/ClassFreeDays/Types`, asked for only when
+  such an entry of the student's class is there. New:
+  `client.async_get_class_free_day_types()`, `parsers.parse_free_day_types()`,
+  `parse_free_days(..., type_names=)`, `FreeDayData.type_id`.
+- **Free days that free only some lessons.** Some class entries carry
+  `LessonNoFrom` / `LessonNoTo`; `FreeDayData.lesson_no_from` /
+  `lesson_no_to` hold them and `FreeDayData.whole_day` is False. (Thanks
+  @keysim86 for reporting)
+
 ## 0.3.28
 
 ### Added

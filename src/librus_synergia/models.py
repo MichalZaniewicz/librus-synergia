@@ -309,13 +309,27 @@ class ClassData:
 class FreeDayData:
     """A school- or class-wide free day/break, from `SchoolFreeDays` or
     `ClassFreeDays` (same shape, confirmed live for both). `ClassFreeDays`
-    lists every class in the school, each entry with its `Class.Id` - a
-    caller keeps the student's own class only (this parser doesn't filter)."""
+    lists every class in the school, each entry with its `Class.Id`;
+    `parse_free_days(..., class_id=)` keeps the student's class only.
+
+    A class entry has no `Name` of its own, only `Type.Id` (named in
+    `Calendars/ClassFreeDays/Types`, e.g. "Wycieczka") - `name` is then the
+    type's name. Some class entries free only some lessons: `LessonNoFrom` /
+    `LessonNoTo` (seen in a user's diagnostics, 7 of 48 entries); then
+    `lesson_no_from` / `lesson_no_to` are set and `whole_day` is False."""
 
     id: int
     name: str
     date_from: str
     date_to: str
+    type_id: int | None = None
+    lesson_no_from: int | None = None
+    lesson_no_to: int | None = None
+
+    @property
+    def whole_day(self) -> bool:
+        """False when only some lessons are off (`lesson_no_from/to`)."""
+        return self.lesson_no_from is None and self.lesson_no_to is None
 
 
 @dataclass(slots=True)
