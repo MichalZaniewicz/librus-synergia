@@ -700,3 +700,73 @@ async def test_mark_announcement_read_refused() -> None:
             with pytest.raises(LibrusUnexpectedResponseError):
                 # An id with a slash is quoted, never a different path.
                 await librus.mark_announcement_read("x/y")
+
+
+async def test_free_days_keep_only_the_students_class() -> None:
+    """ClassFreeDays lists every class in the school (seen on a user's
+    account) - only the student's class (Classes -> Class.Id) is kept."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(
+                f"{DATA_BASE_URL}/SchoolFreeDays",
+                json_data={
+                    "SchoolFreeDays": [
+                        {
+                            "Id": 1,
+                            "Name": "Ferie",
+                            "DateFrom": "2027-01-18",
+                            "DateTo": "2027-01-31",
+                        },
+                    ]
+                },
+            )
+            mocked.get(
+                f"{DATA_BASE_URL}/ClassFreeDays",
+                json_data={
+                    "ClassFreeDays": [
+                        {
+                            "Id": 2,
+                            "Class": {"Id": 41},
+                            "DateFrom": "2026-10-19",
+                            "DateTo": "2026-11-14",
+                        },
+                        {
+                            "Id": 3,
+                            "Class": {"Id": 42},
+                            "DateFrom": "2026-10-23",
+                            "DateTo": "2026-10-23",
+                        },
+                        {"Id": 4, "DateFrom": "2026-10-30", "DateTo": "2026-10-30"},
+                    ]
+                },
+            )
+            mocked.get(
+                f"{DATA_BASE_URL}/Classes",
+                json_data={"Class": {"Id": 42, "Number": 7, "Symbol": "d"}},
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            assert [d.id for d in await librus.free_days()] == [1, 3, 4]
+
+
+async def test_free_days_unknown_class_keeps_everything() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(f"{DATA_BASE_URL}/SchoolFreeDays", json_data={"SchoolFreeDays": []})
+            mocked.get(
+                f"{DATA_BASE_URL}/ClassFreeDays",
+                json_data={
+                    "ClassFreeDays": [
+                        {
+                            "Id": 2,
+                            "Class": {"Id": 41},
+                            "DateFrom": "2026-10-19",
+                            "DateTo": "2026-10-19",
+                        },
+                    ]
+                },
+            )
+            mocked.get(f"{DATA_BASE_URL}/Classes", status=404, json_data={})
+            librus = Librus("1234567u", "pw", session=session)
+            assert [d.id for d in await librus.free_days()] == [2]

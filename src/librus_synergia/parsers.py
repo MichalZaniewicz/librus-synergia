@@ -1771,10 +1771,18 @@ def parse_class(payload: dict[str, Any]) -> ClassData | None:
         begin_school_year=cls.get("BeginSchoolYear"),
         end_first_semester=cls.get("EndFirstSemester"),
         end_school_year=cls.get("EndSchoolYear"),
+        id=as_int(cls.get("Id")),
     )
 
 
-def parse_free_days(payload: dict[str, Any], root_key: str) -> list[FreeDayData]:
+def parse_free_days(
+    payload: dict[str, Any], root_key: str, *, class_id: int | None = None
+) -> list[FreeDayData]:
+    """`SchoolFreeDays` / `ClassFreeDays`. CONFIRMED on a user's account
+    (2026-10-13): `ClassFreeDays` lists the free days of EVERY class in the
+    school, each with its `Class.Id` - with `class_id` (the student's
+    `ClassData.id`) the other classes' days are left out. An entry without a
+    class is kept."""
     items = payload.get(root_key)
     if not isinstance(items, list):
         return []
@@ -1783,6 +1791,10 @@ def parse_free_days(payload: dict[str, Any], root_key: str) -> list[FreeDayData]
         day_id = as_int(item.get("Id")) if isinstance(item, dict) else None
         if day_id is None or not item.get("DateFrom") or not item.get("DateTo"):
             continue
+        if class_id is not None:
+            item_class = as_int(_obj(item.get("Class")).get("Id"))
+            if item_class is not None and item_class != class_id:
+                continue
         free_days.append(
             FreeDayData(
                 id=day_id,

@@ -103,7 +103,7 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `timetable(week_of=None)` | `{date: [LessonData]}` for one week, including parallel groups, cancellations and substitutions; a substitution's `original` says what lesson, teacher and room it replaces, `room_changed` flags a new room |
 | `agenda()`, `agenda_categories()` | terminarz: tests, quizzes, trips, parent meetings |
 | `homework()` | homework assignments (zadania domowe), with their attachment list |
-| `free_days()`, `parent_teacher_conferences()` | days off; conferences |
+| `free_days()`, `parent_teacher_conferences()` | days off (school-wide and the student's class); conferences |
 | `text_grades()` | free-text grades, which `grades()` doesn't contain |
 | `lesson_topics()` | every lesson held, with its topic and subject (Realizations) |
 | `standing_timetable()` | the standing weekly plan (TimetableEntries); `parsers.plan_differences()` shows how a real week differs from it |

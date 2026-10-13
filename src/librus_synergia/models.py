@@ -294,6 +294,9 @@ class ClassData:
     begin_school_year: str | None
     end_first_semester: str | None
     end_school_year: str | None
+    # `Class.Id` - what `ClassFreeDays` entries point at. None for a
+    # kindergarten group.
+    id: int | None = None
 
     @property
     def display_name(self) -> str:

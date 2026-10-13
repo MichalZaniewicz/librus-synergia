@@ -1233,8 +1233,20 @@ class Librus:
             self._call(self.client.async_get_school_free_days),
             self._call(self.client.async_get_class_free_days),
         )
+        # `ClassFreeDays` holds every class in the school - keep the
+        # student's class only (asked for only when some entry names a
+        # class). Class unknown: everything, as before.
+        items = klass.get("ClassFreeDays")
+        own: ClassData | None = None
+        if isinstance(items, list) and any(
+            isinstance(item, dict) and isinstance(item.get("Class"), dict) for item in items
+        ):
+            try:
+                own = await self.school_class()
+            except LibrusError:
+                own = None
         return parsers.parse_free_days(school, "SchoolFreeDays") + parsers.parse_free_days(
-            klass, "ClassFreeDays"
+            klass, "ClassFreeDays", class_id=own.id if own else None
         )
 
     async def text_grades(self) -> list[TextGradeData]:

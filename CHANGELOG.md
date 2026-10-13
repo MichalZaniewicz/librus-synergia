@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **`Librus.free_days()` returned the free days of every class in the
+  school.** `ClassFreeDays` lists all classes (seen on a user's account: 48
+  entries, two for the student's class), so other classes' trips and work
+  placements came back as free days. Only the student's class is kept now;
+  school-wide free days are unchanged, and if the class can't be read,
+  nothing is dropped. `parse_free_days()` has a new `class_id=` argument
+  and `ClassData` a new `id` field (`Class.Id`).
+
 ## 0.3.27
 
 ### Fixed
