@@ -1,0 +1,14 @@
+{
+  "name": "librus-synergia",
+  "description": "Claude Code skill for the librus-synergia Python library (unofficial Librus Synergia client).",
+  "owner": {
+    "name": "Michal Zaniewicz"
+  },
+  "plugins": [
+    {
+      "name": "librus-synergia",
+      "source": "./plugins/librus-synergia",
+      "description": "Helps write code with librus-synergia: login and sessions, the Librus facade, data models, polling for changes, error handling and the API's traps."
+    }
+  ]
+}

@@ -186,6 +186,17 @@ raw = await librus.client.async_get_units()                 # no high-level wrap
 week = parsers.merge_timetables(await librus.client.async_get_timetable(date(2026, 9, 7)))
 ```
 
+## Using it with Claude Code
+
+This repository is also a [Claude Code](https://code.claude.com/) plugin marketplace with a skill for this library. With it, Claude knows the `Librus` API, the data models, saved sessions, polling with `ChangeTracker`, the errors and the traps of the Librus API while it writes code for you. In Claude Code, run:
+
+```text
+/plugin marketplace add MichalZaniewicz/librus-synergia
+/plugin install librus-synergia@librus-synergia
+```
+
+Claude picks the skill up when you work with `librus_synergia`, or you can call it with `/librus-synergia:librus-synergia`. To get later improvements, update the marketplace and the plugin from `/plugin`. The skill lives in [`plugins/librus-synergia`](plugins/librus-synergia/skills/librus-synergia/SKILL.md), and CI type-checks its example programs against the library.
+
 ## Unofficial Librus API notes
 
 The **[unofficial Librus API notes](https://michalzaniewicz.github.io/librus-synergia/)** (source in [`docs/`](docs/)) describe the private API itself: the login flow, every endpoint's shape, and what each status code really means. Every claim is marked as confirmed against a real account, taken from another client's source, or still unverified. It's language-agnostic, so it's useful even if you're not writing Python.

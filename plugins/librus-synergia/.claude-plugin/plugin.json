@@ -1,0 +1,11 @@
+{
+  "name": "librus-synergia",
+  "description": "Helps write code with librus-synergia, the unofficial async Python client for Librus Synergia (the Polish school e-register).",
+  "author": {
+    "name": "Michal Zaniewicz"
+  },
+  "homepage": "https://github.com/MichalZaniewicz/librus-synergia",
+  "repository": "https://github.com/MichalZaniewicz/librus-synergia",
+  "license": "MIT",
+  "keywords": ["librus", "librus-synergia", "e-dziennik", "school", "python"]
+}

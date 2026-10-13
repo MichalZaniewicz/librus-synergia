@@ -20,3 +20,23 @@ jobs:
       - run: ruff format --check src tests
       - run: mypy
       - run: pytest -v
+
+  # The Claude Code plugin in plugins/librus-synergia: its manifests must be
+  # valid and the example programs in the skill must type-check against the
+  # library, so the skill can't drift from the real API.
+  skill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -e ".[dev]"
+      - run: python scripts/check_skill_examples.py
+      # Not --strict: the plugin deliberately has no "version", so users
+      # follow every commit (the validator warns about it).
+      - run: npx -y @anthropic-ai/claude-code@2.1.160 plugin validate ./plugins/librus-synergia
+      - run: npx -y @anthropic-ai/claude-code@2.1.160 plugin validate .

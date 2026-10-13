@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.3.28
+
+### Added
+- **Claude Code skill.** The repository is now also a Claude Code plugin
+  marketplace (`/plugin marketplace add MichalZaniewicz/librus-synergia`,
+  then `/plugin install librus-synergia@librus-synergia`). The skill covers
+  the `Librus` API and models, saved sessions, polling with
+  `ChangeTracker`, errors and the API's traps, with example programs that CI
+  type-checks against the library (`scripts/check_skill_examples.py`).
 
 ### Fixed
 - **`Librus.free_days()` returned the free days of every class in the
