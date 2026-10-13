@@ -656,3 +656,27 @@ async def test_auth_subjects_are_kept_for_a_day(clock) -> None:
             clock.now += RECHECK_SECONDS
             await librus.partial_grades()
             assert mocked.get_calls[subjects_url] == 2
+
+
+async def test_mark_announcement_read_posts_to_mark_as_read() -> None:
+    url = f"{DATA_BASE_URL}/SchoolNotices/MarkAsRead/LID-NBOARD-NOTICE-1"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            # The answer's body isn't used: an empty one is fine.
+            mocked.post(url, text_data="")
+            librus = Librus("1234567u", "pw", session=session)
+            await librus.mark_announcement_read("LID-NBOARD-NOTICE-1")
+            assert mocked.post_calls[url] == 1
+
+
+async def test_mark_announcement_read_refused() -> None:
+    url = f"{DATA_BASE_URL}/SchoolNotices/MarkAsRead/x%2Fy"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.post(url, status=400, json_data={"Status": "Error"})
+            librus = Librus("1234567u", "pw", session=session)
+            with pytest.raises(LibrusUnexpectedResponseError):
+                # An id with a slash is quoted, never a different path.
+                await librus.mark_announcement_read("x/y")

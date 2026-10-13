@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.26
+
+### Added
+- **Marking a school notice read**: `Librus.mark_announcement_read(id)` /
+  `client.async_mark_school_notice_read(id)` (`POST
+  SchoolNotices/MarkAsRead/<id>`), the same as opening the notice in Librus.
+  Any success status counts; a refusal is `LibrusUnexpectedResponseError`.
+  Not yet seen live.
+
 ## 0.3.25
 
 ### Changed

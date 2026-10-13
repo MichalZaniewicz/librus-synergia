@@ -1420,6 +1420,11 @@ class Librus:
         payload = await self._call(self.client.async_get_school_notices)
         return parsers.parse_school_notices(payload)
 
+    async def mark_announcement_read(self, notice_id: str) -> None:
+        """Marks one school notice read in Librus (as opening it there
+        does). Raises `LibrusUnexpectedResponseError` when Librus refuses."""
+        await self._call(lambda: self.client.async_mark_school_notice_read(notice_id))
+
     async def lucky_number(self) -> LuckyNumberData | None:
         payload = await self._call(self.client.async_get_lucky_number)
         return parsers.parse_lucky_number(payload)

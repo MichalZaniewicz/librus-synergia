@@ -115,6 +115,7 @@ See [`examples/quickstart.py`](examples/quickstart.py) for a runnable version th
 | `download_homework_attachment(attachment_id)` | a homework attachment (name, type, bytes) |
 | `download_school_file(download_path)` | a document from `school_files()` (name, type, bytes) |
 | `announcements()` | school notice board (tablica ogłoszeń) |
+| `mark_announcement_read(id)` | marks a notice read in Librus, as opening it there does |
 | `lucky_number()` | szczęśliwy numerek, with the day it applies to |
 | `unread_messages()`, `messages(mailbox="inbox", *, limit=10)` | unread count per mailbox; message previews (listing never marks read); `mailbox="outbox"` gives sent messages with `receiver_name`, `"archive/inbox"` past school years |
 | `message(id, mailbox)` | the full message body, which **marks it read** like opening it in the app |
