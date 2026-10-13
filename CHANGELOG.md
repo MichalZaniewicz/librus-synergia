@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.27
+
+### Fixed
+- **`mark_announcement_read` on a notice that's already read** no longer
+  raises. Librus answers it with HTTP 400 `InvalidRequest` ("[212] Invalid
+  request params", seen live); the notice is read either way, so it counts
+  as done.
+
 ## 0.3.26
 
 ### Added

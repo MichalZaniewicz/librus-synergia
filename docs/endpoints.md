@@ -285,7 +285,7 @@ no JSON at all on Gateway 2.0 - it most likely lives on the newer
 | Endpoint | Root key | Notes |
 |---|---|---|
 | `SchoolNotices` | `SchoolNotices` | ✅ `Subject`, `Content` (full text, not truncated), `StartDate`, `EndDate`, `CreationDate`, `WasRead`. ✅ `Id` is a **string**. |
-| `SchoolNotices/MarkAsRead/<id>` | — | 📖 **POST** marks one notice read (`WasRead` turns true), like opening it in Librus. The answer's body isn't used. `async_mark_school_notice_read` / `Librus.mark_announcement_read`. Not yet seen live. |
+| `SchoolNotices/MarkAsRead/<id>` | — | 📖 **POST** marks one notice read (`WasRead` turns true), like opening it in Librus. The answer's body isn't used. ✅ For a notice that is **already read** it answers HTTP 400 `{"Code": "InvalidRequest", "Message": "[212] Invalid request params"}` (seen 2026-10-13) - the library counts that as done. Marking an unread one not yet seen live. `async_mark_school_notice_read` / `Librus.mark_announcement_read`. |
 | `LuckyNumbers` | `LuckyNumber` | ✅ `{"LuckyNumber": {"LuckyNumber": 13, "LuckyNumberDay": "2026-09-08"}}`. ✅ The number for the **next** school day can appear a day early, so check `LuckyNumberDay`. ✅ `?forDay=YYYY-MM-DD` answers 403 on a parent account. |
 
 The student's own class-register number is in the JSON API: ✅

@@ -695,13 +695,23 @@ class LibrusApiClient:
         """Marks one school notice read (`POST SchoolNotices/MarkAsRead/<id>`),
         the same as opening it in Librus - `WasRead` turns true. Endpoint per
         szkolny-android's `LibrusApiAnnouncementMarkAsRead.kt`; the answer's
-        body isn't used (any success status counts). A refusal (HTTP 400/404,
-        e.g. an unknown id) is `LibrusUnexpectedResponseError`."""
-        return await self._async_request_url(
-            f"{DATA_BASE_URL}/{ENDPOINT_SCHOOL_NOTICES}/MarkAsRead/{quote(str(notice_id), safe='')}",
-            method="POST",
-            lenient_body=True,
-        )
+        body isn't used (any success status counts).
+
+        CONFIRMED live 2026-10-13: a notice that is already read answers
+        HTTP 400 `{"Code": "InvalidRequest", "Message": "[212] Invalid request
+        params"}`. That counts as done (the notice is read either way) - the
+        reference app ignores this error the same way. Any other refusal is
+        `LibrusUnexpectedResponseError`."""
+        try:
+            return await self._async_request_url(
+                f"{DATA_BASE_URL}/{ENDPOINT_SCHOOL_NOTICES}/MarkAsRead/{quote(str(notice_id), safe='')}",
+                method="POST",
+                lenient_body=True,
+            )
+        except LibrusUnexpectedResponseError as err:
+            if err.status_code == 400 and "InvalidRequest" in str(err):
+                return {}
+            raise
 
     async def async_get_lucky_number(self) -> dict[str, Any]:
         return await self._async_request(ENDPOINT_LUCKY_NUMBERS)

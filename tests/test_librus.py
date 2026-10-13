@@ -670,6 +670,26 @@ async def test_mark_announcement_read_posts_to_mark_as_read() -> None:
             assert mocked.post_calls[url] == 1
 
 
+async def test_mark_announcement_read_already_read_counts_as_done() -> None:
+    """Live answer for a notice that's already read."""
+    url = f"{DATA_BASE_URL}/SchoolNotices/MarkAsRead/LID-NBOARD-NOTICE-2"
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.post(
+                url,
+                status=400,
+                json_data={
+                    "Status": "Error",
+                    "Code": "InvalidRequest",
+                    "Message": "[212] Invalid request params",
+                },
+            )
+            librus = Librus("1234567u", "pw", session=session)
+            await librus.mark_announcement_read("LID-NBOARD-NOTICE-2")
+            assert mocked.post_calls[url] == 1
+
+
 async def test_mark_announcement_read_refused() -> None:
     url = f"{DATA_BASE_URL}/SchoolNotices/MarkAsRead/x%2Fy"
     async with aiohttp.ClientSession() as session:
