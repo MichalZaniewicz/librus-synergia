@@ -305,8 +305,9 @@ class ClassData:
 @dataclass(slots=True)
 class FreeDayData:
     """A school- or class-wide free day/break, from `SchoolFreeDays` or
-    `ClassFreeDays` (same shape, confirmed live for both - `ClassFreeDays`
-    was empty at the time but the endpoint and shape are real)."""
+    `ClassFreeDays` (same shape, confirmed live for both). `ClassFreeDays`
+    lists every class in the school, each entry with its `Class.Id` - a
+    caller keeps the student's own class only (this parser doesn't filter)."""
 
     id: int
     name: str
@@ -606,8 +607,8 @@ class PointGradeData:
     """A point grade (`PointGrades`): `points` out of `max_points` (the
     category's ValueTo). Schools grading on a 0-100 scale use these instead
     of the 1-6 `Grades`. Fields per szkolny-android's
-    `LibrusApiPointGrades.kt` - not seen live (the test account's school has
-    PointGradesEnabled=false)."""
+    `LibrusApiPointGrades.kt`, seen with real data on a user's account
+    (2026-10-13)."""
 
     id: int
     subject_id: int | None
