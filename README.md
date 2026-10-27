@@ -217,7 +217,7 @@ These are real children's school accounts. Cache lookups (`subjects()`, `teacher
 
 ## Supporters
 
-Thank you to everyone who [bought me a coffee](https://buymeacoffee.com/zanula) for the Librus projects:
+Thanks to everyone who [bought me a coffee](https://buymeacoffee.com/zanula) for the Librus projects:
 
 - **Paweł**
 - **devNull**
