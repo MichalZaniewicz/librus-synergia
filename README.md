@@ -215,6 +215,14 @@ See [errors and status codes](https://michalzaniewicz.github.io/librus-synergia/
 
 These are real children's school accounts. Cache lookups (`subjects()`, `teachers()` and similar change rarely - `cache_reference_data=True` does it for you), poll with `fetch_changes()` rather than `fetch_all()`, don't poll more than every ~15 minutes, and don't retry in a loop.
 
+## Supporters
+
+Thank you to everyone who [bought me a coffee](https://buymeacoffee.com/zanula) for the Librus projects:
+
+- **Paweł**
+- **devNull**
+- **M4hSzyna**
+
 ## Credits
 
 The login flow is based on [emsi/librus_pyapi](https://github.com/emsi/librus_pyapi) (MIT). Some endpoint and field names were cross-checked against [szkolny-eu/szkolny-android](https://github.com/szkolny-eu/szkolny-android). No code was copied from it.
