@@ -78,6 +78,7 @@ from .const import (
     ENDPOINT_TIMETABLES,
     ENDPOINT_UNITS,
     ENDPOINT_VIRTUAL_CLASSES,
+    EXTRA_ACTIVITY_ENDPOINTS,
     INSUFFICIENT_SCOPES_MARKER,
     KINDERGARTENS_BASE_URL,
     LOGIN_HEADERS,
@@ -823,6 +824,21 @@ class LibrusApiClient:
     async def async_get_library_lendings(self) -> dict[str, Any]:
         """Books lent by the school library, see `parse_library_lendings`."""
         return await self._async_request(ENDPOINT_LIBRARY_LENDINGS)
+
+    async def async_get_extra_activities(
+        self, kind: str, date_from: date, date_to: date
+    ) -> dict[str, Any]:
+        """Activities of one kind outside the regular timetable
+        (`EXTRA_ACTIVITY_ENDPOINTS`) between two dates, both included -
+        see `parse_extra_activities`."""
+        return await self._async_request(
+            EXTRA_ACTIVITY_ENDPOINTS[kind],
+            params={
+                "dateFrom": date_from.isoformat(),
+                "dateTo": date_to.isoformat(),
+                "hideOutdatedEntries": "false",
+            },
+        )
 
     async def async_get_plan_changes(self) -> dict[str, Any]:
         """Every change to the class's plan this school year (cancelled

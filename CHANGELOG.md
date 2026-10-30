@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.30
+
+### Added
+- **Activities outside the regular timetable.** `Librus.extra_activities(date_from,
+  date_to, kinds=...)` reads the three extra lists of Synergia's timetable page:
+  extra activities (`Timetables/OtherActivitiesRegister`), the individualised
+  learning path (`Timetables/IndividualLearningPath`) and one-to-one teaching
+  (`Timetables/OneToOneLearningPlan`). Each comes as an `ExtraActivityData` with
+  its date, start and end time, title, teacher's name, classroom and whether it
+  is cancelled. A kind Librus refuses is left out. New:
+  `client.async_get_extra_activities()`, `parsers.parse_extra_activities()`,
+  `EXTRA_ACTIVITY_ENDPOINTS`. (Thanks @Flower7C3 for reporting, with a real
+  response)
+
 ## 0.3.29
 
 ### Added

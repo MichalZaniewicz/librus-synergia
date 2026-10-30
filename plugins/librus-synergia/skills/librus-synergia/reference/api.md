@@ -55,6 +55,7 @@ Librus(
 | `parent_teacher_conferences()` | `list[ParentTeacherConferenceData]` |
 | `school_trips()`, `school_files()` | `list[SchoolTripData]`; `list[SchoolFileData]` |
 | `library_lendings()` | `list[LibraryLendingData]` |
+| `extra_activities(date_from, date_to, kinds=...)` | `list[ExtraActivityData]` - activities outside the timetable (extra activities, individualised path, one-to-one teaching) |
 | `announcements()` | `list[SchoolNoticeData]` (tablica ogłoszeń) |
 | `mark_announcement_read(id)` | `None` - **marks the notice read** |
 | `lucky_number()` | `LuckyNumberData | None` |
@@ -105,6 +106,7 @@ unless a field is a `date`. Ids are `int`, except where noted in
 - `SchoolTripData`: id, destination, route, transport, date_from, date_to, coordinator
 - `SchoolFileData`: id, name, added, download_path
 - `LibraryLendingData`: id, title, author, kind, lent_on, due_date, extendable
+- `ExtraActivityData`: kind (`other` / `individual_path` / `one_to_one`), id, date, hour_from, hour_to, title, teacher (a name), teacher_account_id, classroom, cancelled, status
 - `SchoolNoticeData`: id (`str`), subject, content (full text), start_date, end_date, creation_date, was_read
 - `LuckyNumberData`: day, number
 - `MessageData`: id (`str`), sender_name, topic, content (shortened preview), send_date, read_date (`None` = unread), has_attachment, mailbox, receiver_name (sent messages)

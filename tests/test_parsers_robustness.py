@@ -151,6 +151,17 @@ def test_odd_lists_do_not_crash() -> None:
     assert parsers.parse_realizations({"Realizations": {"a": 1}}) == []
     assert parsers.parse_school_trips({"Data": 3}) == []
     assert parsers.parse_library_lendings({"lendings": "x"}) == []
+    assert parsers.parse_extra_activities({"data": "x"}, "other") == []
+    (activity,) = parsers.parse_extra_activities(
+        {"data": [{"identifier": 5, "classroom": "x", "startTime": "rano", "date": 7}]}, "other"
+    )
+    assert (activity.id, activity.classroom, activity.hour_from, activity.date) == (
+        "5",
+        None,
+        None,
+        None,
+    )
+    assert (activity.title, activity.teacher, activity.cancelled) == ("", None, False)
     assert parsers.parse_plan_changes({"Substitutions": 7}) == []
     (lending,) = parsers.parse_library_lendings(
         {"lendings": [{"identifier": 5, "title": None, "lendedAt": 3, "isExtendable": "yes"}]}

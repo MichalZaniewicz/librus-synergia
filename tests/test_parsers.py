@@ -694,6 +694,65 @@ def test_parse_school_trips_and_files() -> None:
     ]
 
 
+def test_parse_extra_activities() -> None:
+    activities = parsers.parse_extra_activities(
+        {
+            "data": [
+                {
+                    "status": "CANCELED",
+                    "identifier": "LID-OAR-SCHEDULEEVENT-2",
+                    "date": "2026-10-27",
+                    "startTime": "08:55",
+                    "endTime": "09:40",
+                    "teacherName": "Anna Nowak",
+                    "teacherAccountId": 1000001,
+                    "title": "Zajęcia dodatkowe A",
+                    "classroom": {
+                        "identifier": "90001",
+                        "symbol": "101",
+                        "name": "101",
+                        "size": "0",
+                    },
+                },
+                {
+                    "status": "ACTUAL",
+                    "identifier": "LID-OAR-SCHEDULEEVENT-1",
+                    "date": "2026-10-27",
+                    "startTime": "07:50",
+                    "endTime": "08:50:00",
+                    "teacherName": "Anna Nowak",
+                    "teacherAccountId": "1000001",
+                    "title": "Zajęcia dodatkowe B",
+                    "classroom": {"name": "sala gimnastyczna"},
+                },
+                {"title": "no id"},
+            ],
+            "Url": "https://api.librus.pl/2.0/Timetables/OtherActivitiesRegister",
+        },
+        "other",
+    )
+    assert [a.id for a in activities] == ["LID-OAR-SCHEDULEEVENT-1", "LID-OAR-SCHEDULEEVENT-2"]
+    first, second = activities
+    assert (first.kind, first.date, first.hour_from, first.hour_to) == (
+        "other",
+        "2026-10-27",
+        "07:50",
+        "08:50",
+    )
+    assert (first.title, first.teacher, first.teacher_account_id) == (
+        "Zajęcia dodatkowe B",
+        "Anna Nowak",
+        1000001,
+    )
+    assert (first.classroom, first.cancelled, first.status) == (
+        "sala gimnastyczna",
+        False,
+        "ACTUAL",
+    )
+    assert (second.classroom, second.cancelled, second.status) == ("101", True, "CANCELED")
+    assert parsers.parse_extra_activities({"data": []}, "one_to_one") == []
+
+
 def test_parse_library_lendings() -> None:
     lendings = parsers.parse_library_lendings(
         {

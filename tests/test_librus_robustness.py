@@ -4,7 +4,7 @@ cancelled siblings, request limits, caches and the change-only fetch."""
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -400,6 +400,46 @@ async def test_refused_module_is_not_asked_again_for_a_day(
             clock.now += RECHECK_SECONDS
             await getattr(librus, method)()
             assert mocked.get_calls[_url(endpoint)] == 2
+
+
+async def test_extra_activities_ask_each_kind_for_the_range_and_skip_a_refused_one(
+    clock: _Clock,
+) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(
+                _url("Timetables/OtherActivitiesRegister"),
+                json_data={
+                    "data": [
+                        {
+                            "status": "ACTUAL",
+                            "identifier": "LID-1",
+                            "date": "2026-10-30",
+                            "startTime": "09:35",
+                            "endTime": "10:35",
+                            "title": "Zajęcia dodatkowe",
+                        }
+                    ]
+                },
+            )
+            mocked.get(_url("Timetables/IndividualLearningPath"), json_data={"data": []})
+            mocked.get(_url("Timetables/OneToOneLearningPlan"), status=403, json_data={})
+            librus = Librus("1234567u", "pw", session=session)
+            activities = await librus.extra_activities(date(2026, 10, 26), date(2026, 11, 8))
+            assert [(a.kind, a.id) for a in activities] == [("other", "LID-1")]
+            assert mocked.kwargs[_url("Timetables/OtherActivitiesRegister")]["params"] == {
+                "dateFrom": "2026-10-26",
+                "dateTo": "2026-11-08",
+                "hideOutdatedEntries": "false",
+            }
+            # The refused kind isn't asked again for a day; a chosen subset
+            # asks only for itself.
+            await librus.extra_activities(date(2026, 10, 26), date(2026, 11, 8))
+            assert mocked.get_calls[_url("Timetables/OneToOneLearningPlan")] == 1
+            await librus.extra_activities(date(2026, 10, 26), date(2026, 11, 8), kinds=("other",))
+            assert mocked.get_calls[_url("Timetables/IndividualLearningPath")] == 2
+            assert mocked.get_calls[_url("Timetables/OtherActivitiesRegister")] == 3
 
 
 async def test_module_server_error_is_still_raised() -> None:

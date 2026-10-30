@@ -233,6 +233,23 @@ ENDPOINT_SCHOOL_FILES = "SchoolFiles"
 # this school year - CONFIRMED live 2026-10-12.
 ENDPOINT_LIBRARY_LENDINGS = "EbiblioLendings"
 ENDPOINT_PLAN_CHANGES = "Calendars/Substitutions"
+# Activities outside the regular timetable, each queried for a date range
+# (`dateFrom`/`dateTo`/`hideOutdatedEntries`), answering `{"data": [...]}`.
+# Extra activities (Synergia's "zajęcia dodatkowe", DZD) CONFIRMED live
+# 2026-10-30 with real entries; the individualised learning path (ZŚK) and
+# one-to-one teaching (NI) answered empty lists and are read the same way.
+ENDPOINT_OTHER_ACTIVITIES = "Timetables/OtherActivitiesRegister"
+ENDPOINT_INDIVIDUAL_LEARNING_PATH = "Timetables/IndividualLearningPath"
+ENDPOINT_ONE_TO_ONE_LEARNING_PLAN = "Timetables/OneToOneLearningPlan"
+EXTRA_ACTIVITY_OTHER = "other"
+EXTRA_ACTIVITY_INDIVIDUAL_PATH = "individual_path"
+EXTRA_ACTIVITY_ONE_TO_ONE = "one_to_one"
+# Kind -> endpoint.
+EXTRA_ACTIVITY_ENDPOINTS = {
+    EXTRA_ACTIVITY_OTHER: ENDPOINT_OTHER_ACTIVITIES,
+    EXTRA_ACTIVITY_INDIVIDUAL_PATH: ENDPOINT_INDIVIDUAL_LEARNING_PATH,
+    EXTRA_ACTIVITY_ONE_TO_ONE: ENDPOINT_ONE_TO_ONE_LEARNING_PLAN,
+}
 # The standing weekly plan (weekday + lesson number, valid between two
 # dates), CONFIRMED live 2026-10-08.
 ENDPOINT_TIMETABLE_ENTRIES = "TimetableEntries"

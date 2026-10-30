@@ -535,6 +535,32 @@ class LibraryLendingData:
 
 
 @dataclass(slots=True)
+class ExtraActivityData:
+    """One activity outside the regular timetable: an extra activity
+    (`kind` "other", Synergia's "zajęcia dodatkowe"), the individualised
+    learning path ("individual_path", ZŚK) or one-to-one teaching
+    ("one_to_one", NI). CONFIRMED live 2026-10-30 for "other"; the other two
+    were empty on every account seen so far and are assumed to share its
+    shape.
+
+    Times are free (e.g. 07:50-08:50), not bell periods, so there is no
+    lesson number. The teacher comes as a ready name; `teacher_account_id`
+    is a Wiadomości account id, not a `Users` id."""
+
+    kind: str
+    id: str
+    date: str | None
+    hour_from: str | None
+    hour_to: str | None
+    title: str
+    teacher: str | None
+    teacher_account_id: int | None
+    classroom: str | None
+    cancelled: bool
+    status: str | None
+
+
+@dataclass(slots=True)
 class PlanChangeData:
     """One change to the class's plan (`Calendars/Substitutions`, the whole
     school year). CONFIRMED live 2026-10-12.

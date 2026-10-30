@@ -31,6 +31,7 @@ from .models import (
     BehaviourGradeData,
     ClassData,
     DescriptiveGradeData,
+    ExtraActivityData,
     FreeDayData,
     FullMessageData,
     GradeCategoryData,
@@ -1352,6 +1353,47 @@ def parse_library_lendings(payload: dict[str, Any]) -> list[LibraryLendingData]:
             )
         )
     result.sort(key=lambda lending: (lending.lent_on or "", lending.title), reverse=True)
+    return result
+
+
+def _hh_mm(value: Any) -> str | None:
+    """ "08:00" or "08:00:00" -> "08:00"; anything else -> None."""
+    text = _text(value).strip()
+    parts = text.split(":")
+    if len(parts) < 2 or not all(part.isdigit() for part in parts[:2]):
+        return None
+    return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+
+
+def parse_extra_activities(payload: dict[str, Any], kind: str) -> list[ExtraActivityData]:
+    """`Timetables/OtherActivitiesRegister` (and the two other
+    `EXTRA_ACTIVITY_ENDPOINTS`) -> activities of `kind`, by date and start
+    time. Lowercase fields inside a `data` list; `status` "CANCELED" marks a
+    cancelled one. CONFIRMED live 2026-10-30 for the extra activities."""
+    result: list[ExtraActivityData] = []
+    for item in _items(payload.get("data")):
+        if not isinstance(item, dict) or item.get("identifier") is None:
+            continue
+        classroom = _obj(item.get("classroom"))
+        room = _text(classroom.get("symbol")).strip() or _text(classroom.get("name")).strip()
+        status = _text(item.get("status")).strip().upper() or None
+        day = item.get("date")
+        result.append(
+            ExtraActivityData(
+                kind=kind,
+                id=str(item["identifier"]),
+                date=day[:10] if isinstance(day, str) and day else None,
+                hour_from=_hh_mm(item.get("startTime")),
+                hour_to=_hh_mm(item.get("endTime")),
+                title=_text(item.get("title")).strip(),
+                teacher=_text(item.get("teacherName")).strip() or None,
+                teacher_account_id=as_int(item.get("teacherAccountId")),
+                classroom=room or None,
+                cancelled=status in ("CANCELED", "CANCELLED"),
+                status=status,
+            )
+        )
+    result.sort(key=lambda activity: (activity.date or "", activity.hour_from or ""))
     return result
 
 

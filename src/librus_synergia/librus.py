@@ -31,6 +31,7 @@ from .client import (
     OnSessionUpdate,
     _with_download_deadline,
 )
+from .const import EXTRA_ACTIVITY_ENDPOINTS
 from .exceptions import (
     LibrusConnectionError,
     LibrusError,
@@ -45,6 +46,7 @@ from .models import (
     BehaviourGradeData,
     ClassData,
     DescriptiveGradeData,
+    ExtraActivityData,
     FreeDayData,
     FullMessageData,
     GradeCategoryData,
@@ -1361,6 +1363,33 @@ class Librus:
             ),
             [],
         )
+
+    async def extra_activities(
+        self,
+        date_from: date,
+        date_to: date,
+        kinds: tuple[str, ...] = tuple(EXTRA_ACTIVITY_ENDPOINTS),
+    ) -> list[ExtraActivityData]:
+        """Activities outside the regular timetable between two dates (both
+        included): extra activities, the individualised learning path and
+        one-to-one teaching (`EXTRA_ACTIVITY_ENDPOINTS`; pick some with
+        `kinds`). A kind Librus refuses is left out (remembered for a day).
+        Cancelled ones are included with `cancelled` True."""
+        result: list[ExtraActivityData] = []
+        for kind in kinds:
+            result.extend(
+                await self._module(
+                    EXTRA_ACTIVITY_ENDPOINTS[kind],
+                    partial(
+                        self._parsed,
+                        partial(self.client.async_get_extra_activities, kind, date_from, date_to),
+                        partial(parsers.parse_extra_activities, kind=kind),
+                    ),
+                    [],
+                )
+            )
+        result.sort(key=lambda activity: (activity.date or "", activity.hour_from or ""))
+        return result
 
     async def plan_changes(self) -> list[PlanChangeData]:
         """Every change to the class's plan this school year - cancelled
