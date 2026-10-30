@@ -779,6 +779,8 @@ class LibrusData:
     school_files: list[SchoolFileData] = field(default_factory=list)
     library_lendings: list[LibraryLendingData] = field(default_factory=list)
     plan_changes: list[PlanChangeData] = field(default_factory=list)
+    # This week's and next week's activities outside the timetable.
+    extra_activities: list[ExtraActivityData] = field(default_factory=list)
     homework_assignment_categories: dict[int, str] = field(default_factory=dict)
     parent_teacher_conferences: list[ParentTeacherConferenceData] = field(default_factory=list)
     # Message lists of a few secondary mailboxes ("substitutions",

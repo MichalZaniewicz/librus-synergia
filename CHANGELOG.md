@@ -11,7 +11,8 @@
   its date, start and end time, title, teacher's name, classroom and whether it
   is cancelled. A kind Librus refuses is left out. New:
   `client.async_get_extra_activities()`, `parsers.parse_extra_activities()`,
-  `EXTRA_ACTIVITY_ENDPOINTS`. (Thanks @Flower7C3 for reporting, with a real
+  `EXTRA_ACTIVITY_ENDPOINTS`; `fetch_all()` fills the new
+  `LibrusData.extra_activities` for this week and next. (Thanks @Flower7C3 for reporting, with a real
   response)
 
 ## 0.3.29

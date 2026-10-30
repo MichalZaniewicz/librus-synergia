@@ -114,7 +114,7 @@ unless a field is a `date`. Ids are `int`, except where noted in
 - `MessageRecipientData`: account_id, name, group, group_name, subjects, available, return_at
 - `SentMessageData`: message_id (may be `None` - a reply has none), status
 - `AttachmentFileData`: filename, content_type, content (bytes)
-- `LibrusData` (`fetch_all` / `fetch_changes`): me, grades, grade_categories, notes, attendances, attendance_types, timetable, homeworks (agenda), homework_assignments, school_notices, lucky_number, subjects, teachers, classrooms, messages_available, unread_message_count, unread_messages_by_mailbox, messages, school, school_class, free_days, behaviour_grades, descriptive_grades, point_grades, grading_system, justifications, text_grades, lesson_topics, school_trips, school_files, library_lendings, plan_changes, parent_teacher_conferences, standing_timetable, sent_messages, archived_messages, the category lookups, and `failed_sections` (what couldn't be fetched)
+- `LibrusData` (`fetch_all` / `fetch_changes`): me, grades, grade_categories, notes, attendances, attendance_types, timetable, homeworks (agenda), homework_assignments, school_notices, lucky_number, subjects, teachers, classrooms, messages_available, unread_message_count, unread_messages_by_mailbox, messages, school, school_class, free_days, behaviour_grades, descriptive_grades, point_grades, grading_system, justifications, text_grades, lesson_topics, school_trips, school_files, library_lendings, plan_changes, extra_activities (this week and next), parent_teacher_conferences, standing_timetable, sent_messages, archived_messages, the category lookups, and `failed_sections` (what couldn't be fetched)
 
 ## Change tracking
 
