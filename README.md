@@ -220,6 +220,7 @@ These are real children's school accounts. Cache lookups (`subjects()`, `teacher
 
 Thanks to everyone who [bought me a coffee](https://buymeacoffee.com/zanula) for the Librus projects:
 
+- **Mateusz**
 - **Paweł**
 - **devNull**
 - **M4hSzyna**
