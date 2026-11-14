@@ -58,7 +58,7 @@ If any response body in steps 3–4 contains a captcha marker (`captcha`,
 
 | Cookie | Domain | Lifetime | Why it matters |
 |---|---|---|---|
-| `oauth_token` | synergia.librus.pl | ✅ `Max-Age=600` per response, session usable ~24 h | The actual session. ❓ The 10-minute Max-Age suggests it's re-issued on every request (sliding expiry). |
+| `oauth_token` | synergia.librus.pl | ✅ `Max-Age=600` per response; the session dies after ~10 min without a request | The actual session. ✅ Idle expiry confirmed live 2026-11-14: 11.5 idle minutes after a login, `Me` answered 401. A request every few minutes keeps it alive; after a quiet spell, `refreshToken` brings it back (below). |
 | `DZIENNIKSID`, `SDZIENNIKSID` | both | session | Session companions. |
 | `DeviceCookie` | api.librus.pl, ✅ **`Path=/OAuth`** | ✅ 1 year (`Max-Age=31536000`) | Marks a known device. ❓ Probably why normal logins get no captcha. **Persist it, with its path.** |
 
@@ -66,25 +66,33 @@ If any response body in steps 3–4 contains a captcha marker (`captcha`,
 "cookies for `https://api.librus.pl/`" does **not** return it. Walk the jar
 (or filter for an `/OAuth/...` URL) when you persist the session.
 
-- There is **no OAuth refresh token** to keep instead of the password. A
-  live session can be extended (next point), but once `oauth_token` has
-  expired you have to log in again with the password, so unattended
-  long-running use needs the password stored.
+- There is **no OAuth refresh token** to keep instead of the password. The
+  session cookies can be renewed with `refreshToken` (next point), even after
+  `oauth_token` expired from idling, but a session that is gone for good
+  (logged out, cookies lost, many hours later ❓) needs a password login, so
+  unattended long-running use needs the password stored.
 - ✅ `GET https://synergia.librus.pl/refreshToken` (with the session cookies)
-  answers 200 with an empty body and a **new `oauth_token`** cookie; the API
-  keeps working afterwards (confirmed live 2026-10-07). Calling it before the
-  session dies should extend it without a password login. ❓ How long the
-  extended session lasts was not measured. `Me` also reports `Refresh: 900`.
+  answers 200 with an empty body and a **new `oauth_token`** cookie (and a
+  new `SDZIENNIKSID`); the API keeps working afterwards (confirmed live
+  2026-10-07). ✅ It also works **after** the session idled out (confirmed
+  live 2026-11-14): log in, wait 11.5 minutes, `Me` answers 401,
+  `refreshToken` answers 200 with new cookies, `Me` works again - no password
+  login. So the cheap way to recover from a 401 is `async_refresh_session()`
+  first and a password login only when it returns False (the Home Assistant
+  integration does this since 0.12.49). ❓ How long after the last request a
+  refresh still works was not measured. `Me` also reports `Refresh: 900`.
   `async_ensure_session_valid` calls it (`async_refresh_session`) once the
   session is 2 hours old and falls back to a password login if it fails.
   A refresh only counts when that very answer sets a new `oauth_token`
   (a 200 without one is a failure); after a failure the client doesn't try
   `refreshToken` again for 30 minutes.
-- ✅ The session can die **before** 24 h. The client assumes a 20 h
-  lifetime, and on an HTTP 401 from a data endpoint it logs in again once
-  and retries. `Librus` does this for you - and when several requests hit
+- ✅ The session dies after ~10 minutes without a request, long before the
+  20 h lifetime the client assumes. On an HTTP 401 from a data endpoint
+  `Librus` logs in again once and retries - and when several requests hit
   the same dead session at once, they all wait for one login instead of
-  each logging in.
+  each logging in. ❓ `Librus` still uses a password login there, not
+  `refreshToken`; a client polling less often than every 10 minutes logs in
+  with the password on nearly every poll.
 - To resume later, persist `LibrusSessionData` (via `export_session()` or
   `Librus.session_data`) and pass it back via `import_session()` or
   `Librus(..., session_data=...)`. `Librus.session_data` can still be read
