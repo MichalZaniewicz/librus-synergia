@@ -78,8 +78,8 @@ If any response body in steps 3–4 contains a captcha marker (`captcha`,
   live 2026-11-14): log in, wait 11.5 minutes, `Me` answers 401,
   `refreshToken` answers 200 with new cookies, `Me` works again - no password
   login. So the cheap way to recover from a 401 is `async_refresh_session()`
-  first and a password login only when it returns False (the Home Assistant
-  integration does this since 0.12.49). ❓ How long after the last request a
+  first and a password login only when it returns False - `Librus` does this
+  since 0.3.31, the Home Assistant integration since 0.12.49. ❓ How long after the last request a
   refresh still works was not measured. `Me` also reports `Refresh: 900`.
   `async_ensure_session_valid` calls it (`async_refresh_session`) once the
   session is 2 hours old and falls back to a password login if it fails.
@@ -88,11 +88,12 @@ If any response body in steps 3–4 contains a captcha marker (`captcha`,
   `refreshToken` again for 30 minutes.
 - ✅ The session dies after ~10 minutes without a request, long before the
   20 h lifetime the client assumes. On an HTTP 401 from a data endpoint
-  `Librus` logs in again once and retries - and when several requests hit
-  the same dead session at once, they all wait for one login instead of
-  each logging in. ❓ `Librus` still uses a password login there, not
-  `refreshToken`; a client polling less often than every 10 minutes logs in
-  with the password on nearly every poll.
+  `Librus` renews the session once and retries: `refreshToken` first, a
+  password login only when that fails (since 0.3.31; before, it always
+  logged in with the password, so a client polling less often than every 10
+  minutes did that on nearly every poll). When several requests hit the same
+  dead session at once, they all wait for one renewal instead of each
+  renewing it.
 - To resume later, persist `LibrusSessionData` (via `export_session()` or
   `Librus.session_data`) and pass it back via `import_session()` or
   `Librus(..., session_data=...)`. `Librus.session_data` can still be read

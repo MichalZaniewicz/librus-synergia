@@ -20,6 +20,7 @@ from librus_synergia.const import (
     API_OAUTH_AUTHORIZATION_URL,
     API_OAUTH_AUTHORIZATION_WITH_SCOPE_URL,
     SYNERGIA_PORTAL_LOGIN_URL,
+    SYNERGIA_REFRESH_TOKEN_URL,
 )
 
 AUTHORIZATION_REDIRECT_URL = (
@@ -200,6 +201,11 @@ class MockedSession:
 
 
 def mock_successful_login(session: aiohttp.ClientSession, mocked: MockedSession) -> None:
+    # A rejected request tries /refreshToken before a password login; unless
+    # a test says otherwise, it fails (no new oauth_token) and the password
+    # login below runs - what every test written before that expects.
+    if SYNERGIA_REFRESH_TOKEN_URL not in mocked._gets:
+        mocked.get(SYNERGIA_REFRESH_TOKEN_URL, status=302, text_data="")
     mocked.get(
         SYNERGIA_PORTAL_LOGIN_URL,
         status=302,

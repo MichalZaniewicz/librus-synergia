@@ -432,6 +432,15 @@ class Librus:
         async with self._login_lock:
             if since is not None and client.login_count != since:
                 return
+            # A rejected request (`since` given): Librus's own token refresh
+            # first, the password only when that fails. Librus drops a
+            # session after ~10 idle minutes and /refreshToken brings it
+            # back (CONFIRMED live 2026-11-14) - a program polling every
+            # 20 minutes used to log in with the password on nearly every
+            # poll.
+            if since is not None and force and await client.async_refresh_session():
+                self._login_failure = None
+                return
             needs_password = force or not client.is_session_valid()
             if (
                 needs_password

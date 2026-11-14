@@ -87,11 +87,11 @@ librus = Librus(login, password,
 Session data grants access to the account while it's valid: store it like a
 password (file mode 0600, never in git). The library renews a session older
 than 2 hours through Librus's `refreshToken`. Librus also drops a session
-after about 10 minutes without a request; `Librus` then logs in again with
-the password on the next 401, so a program polling less often than every 10
-minutes logs in on most polls. `client.async_refresh_session()` brings an
-idled-out session back without the password (confirmed live) - try it
-first if you drive `LibrusApiClient` yourself.
+after about 10 minutes without a request; on the next 401 `Librus` renews it
+with `refreshToken` too (0.3.31+) and uses the password only when that
+fails, so a long-running program rarely needs the password again. If you
+drive `LibrusApiClient` yourself, call `client.async_refresh_session()` on a
+401 before a password login.
 
 ## Polling for what's new
 

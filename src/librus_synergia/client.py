@@ -225,9 +225,10 @@ class LibrusApiClient:
 
     @property
     def login_count(self) -> int:
-        """How many password logins this client has completed. Goes up by
-        one with every successful `async_login` - compare two readings to
-        tell whether someone else logged in meanwhile."""
+        """How many times this client got a fresh session: every successful
+        `async_login` and every successful `async_refresh_session` adds
+        one - compare two readings to tell whether someone else renewed the
+        session meanwhile (a request rejected before that can just retry)."""
         return self._login_count
 
     async def async_close(self) -> None:
@@ -345,6 +346,7 @@ class LibrusApiClient:
             return False
         self._refresh_failed_at = None
         self._logged_in_at = time.time()
+        self._login_count += 1
         if self._on_session_update is not None:
             result = self._on_session_update(self._export_session())
             if result is not None:

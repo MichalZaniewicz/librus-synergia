@@ -16,6 +16,7 @@ from librus_synergia.const import (
     API_OAUTH_AUTHORIZATION_URL,
     DATA_BASE_URL,
     SYNERGIA_PORTAL_LOGIN_URL,
+    SYNERGIA_REFRESH_TOKEN_URL,
 )
 from librus_synergia.exceptions import (
     LibrusConnectionError,
@@ -88,6 +89,32 @@ async def test_requests_rejected_together_share_one_relogin() -> None:
             assert results == ["a", "b", "c"]
             # The first login, then ONE relogin for all three rejections.
             assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 2
+
+
+async def test_rejected_session_is_renewed_with_the_token_first() -> None:
+    """A session Librus dropped after ~10 idle minutes comes back through
+    /refreshToken - no password login (CONFIRMED live 2026-11-14)."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            librus = Librus("1234567u", "pw", session=session)
+            await librus.login()
+            mocked.get(
+                SYNERGIA_REFRESH_TOKEN_URL, status=200, text_data="", cookies={"oauth_token": "new"}
+            )
+            attempts = 0
+
+            async def fetch() -> str:
+                nonlocal attempts
+                attempts += 1
+                await asyncio.sleep(0)
+                if attempts == 1:
+                    raise LibrusSessionExpiredError("dead", status_code=401)
+                return "ok"
+
+            assert await librus._call(fetch) == "ok"
+            assert mocked.get_calls[SYNERGIA_REFRESH_TOKEN_URL] == 1
+            assert mocked.get_calls[SYNERGIA_PORTAL_LOGIN_URL] == 1  # the first login only
 
 
 async def test_failed_login_is_not_retried_right_away(clock: _Clock) -> None:

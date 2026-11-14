@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.31
+
+### Changed
+- **A rejected session is renewed with the token before the password.**
+  Librus drops a session after about 10 minutes without a request, so a
+  program polling every 20 minutes logged in with the password on nearly every
+  poll. On an HTTP 401 `Librus` now calls `refreshToken` first
+  (`client.async_refresh_session()`) and only logs in with the password when
+  that fails. Confirmed on a real account: after 11.5 idle minutes `Me`
+  answered 401 and the token refresh brought the session back.
+- `client.login_count` now also counts successful token refreshes, so
+  requests rejected by the same dead session retry on one refresh instead of
+  each renewing it.
+
 ## 0.3.30
 
 ### Added
