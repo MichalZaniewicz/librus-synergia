@@ -94,6 +94,7 @@ from .const import (
     SANDBOX_DOMAIN,
     SANDBOX_URL,
     SESSION_EXPIRY_SAFETY_MARGIN_SECONDS,
+    SESSION_IDLE_REFRESH_SECONDS,
     SESSION_REFRESH_AFTER_SECONDS,
     SYNERGIA_DOMAIN,
     SYNERGIA_HOMEWORK_ATTACHMENT_URL,
@@ -213,6 +214,10 @@ class LibrusApiClient:
         # Monotonic time of the last failed `refreshToken` (see
         # `REFRESH_RETRY_AFTER_SECONDS`).
         self._refresh_failed_at: float | None = None
+        # Monotonic time of the last request Synergia answered (any host
+        # under synergia.librus.pl, not Wiadomości), a login or a token
+        # refresh. None: unknown (a session imported after a restart).
+        self._synergia_active_at: float | None = None
         # Passing `timeout=None` to aiohttp would mean "no timeout at all",
         # so the keyword is left out entirely when there's none to give.
         self._timeout: dict[str, Any] = (
@@ -248,6 +253,7 @@ class LibrusApiClient:
         if session_data is None:
             return
         self._logged_in_at = session_data.logged_in_at
+        self._synergia_active_at = None
         for cookie in session_data.cookies:
             morsel: SimpleCookie = SimpleCookie()
             morsel[cookie["name"]] = cookie["value"]
@@ -301,7 +307,7 @@ class LibrusApiClient:
         age = self.session_age_seconds
         if (
             age is not None
-            and age >= SESSION_REFRESH_AFTER_SECONDS
+            and (age >= SESSION_REFRESH_AFTER_SECONDS or self._idle_too_long())
             and not self._refresh_recently_failed()
             and await self.async_refresh_session()
         ):
@@ -309,6 +315,16 @@ class LibrusApiClient:
         if self.is_session_valid():
             return
         await self.async_login(password)
+
+    def _idle_too_long(self) -> bool:
+        """No answer from Synergia for SESSION_IDLE_REFRESH_SECONDS, or none
+        known since the session was imported - Librus has probably dropped
+        it, so the token is refreshed before the next request instead of
+        after that request is rejected."""
+        if not self.is_session_valid():
+            return False
+        active = self._synergia_active_at
+        return active is None or time.monotonic() - active >= SESSION_IDLE_REFRESH_SECONDS
 
     def _refresh_recently_failed(self) -> bool:
         return (
@@ -346,6 +362,7 @@ class LibrusApiClient:
             return False
         self._refresh_failed_at = None
         self._logged_in_at = time.time()
+        self._synergia_active_at = time.monotonic()
         self._login_count += 1
         if self._on_session_update is not None:
             result = self._on_session_update(self._export_session())
@@ -371,6 +388,7 @@ class LibrusApiClient:
             raise
 
         self._logged_in_at = time.time()
+        self._synergia_active_at = time.monotonic()
         self._login_count += 1
         self._refresh_failed_at = None
         session_data = self._export_session()
@@ -552,6 +570,9 @@ class LibrusApiClient:
                         f"Session rejected on {url} (HTTP {response.status}).",
                         status_code=response.status,
                     )
+                if response.status < 400 and url.startswith(f"https://{SYNERGIA_DOMAIN}/"):
+                    # The session is alive (see `_idle_too_long`).
+                    self._synergia_active_at = time.monotonic()
                 try:
                     payload = await self._async_read_json(
                         response, array_envelope_key=array_envelope_key

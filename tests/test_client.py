@@ -16,6 +16,7 @@ from librus_synergia.const import (
     DATA_BASE_URL,
     MESSAGES_BASE_URL,
     SANDBOX_URL,
+    SESSION_IDLE_REFRESH_SECONDS,
     SYNERGIA_HOMEWORK_ATTACHMENT_URL,
     SYNERGIA_PORTAL_LOGIN_URL,
     SYNERGIA_REFRESH_TOKEN_URL,
@@ -871,3 +872,51 @@ async def test_aiohttp_timeout_is_told_apart_from_the_deadline() -> None:
         await _with_download_deadline(aiohttp_timeout(), "file-2", 10)
 
     assert "within" not in str(err.value)
+
+
+async def test_idle_session_is_refreshed_before_the_next_request() -> None:
+    """Librus drops a session after ~10 idle minutes: past
+    SESSION_IDLE_REFRESH_SECONDS without an answer from Synergia (or with
+    none known since the import), the token is refreshed first - not after
+    the next request is rejected."""
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(
+                SYNERGIA_REFRESH_TOKEN_URL,
+                status=200,
+                text_data="",
+                cookies={"oauth_token": "renewed"},
+            )
+            client = LibrusApiClient(session, "1234567u")
+            session.cookie_jar.update_cookies(
+                SimpleCookie("oauth_token=abc"), URL("https://synergia.librus.pl/")
+            )
+            client.import_session(LibrusSessionData(cookies=[], logged_in_at=time.time() - 30 * 60))
+
+            await client.async_ensure_session_valid("pw")
+            assert mocked.get_calls[SYNERGIA_REFRESH_TOKEN_URL] == 1
+
+            # Just refreshed: not again.
+            await client.async_ensure_session_valid("pw")
+            assert mocked.get_calls[SYNERGIA_REFRESH_TOKEN_URL] == 1
+
+            # Quiet for longer than the idle limit: refreshed again.
+            client._synergia_active_at = time.monotonic() - SESSION_IDLE_REFRESH_SECONDS - 1
+            await client.async_ensure_session_valid("pw")
+            assert mocked.get_calls[SYNERGIA_REFRESH_TOKEN_URL] == 2
+            assert SYNERGIA_PORTAL_LOGIN_URL not in mocked.get_calls
+
+
+async def test_an_answered_request_keeps_the_session_from_refreshing() -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mocked.get(f"{DATA_BASE_URL}/Me", json_data={"Me": {}})
+            client = LibrusApiClient(session, "1234567u")
+            client.import_session(LibrusSessionData(cookies=[], logged_in_at=time.time() - 30 * 60))
+            client._synergia_active_at = time.monotonic() - SESSION_IDLE_REFRESH_SECONDS - 1
+
+            await client._async_request("Me")
+            await client.async_ensure_session_valid("pw")
+
+            assert SYNERGIA_REFRESH_TOKEN_URL not in mocked.get_calls
+            assert SYNERGIA_PORTAL_LOGIN_URL not in mocked.get_calls

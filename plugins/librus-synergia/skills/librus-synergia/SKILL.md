@@ -86,7 +86,8 @@ librus = Librus(login, password,
 
 Session data grants access to the account while it's valid: store it like a
 password (file mode 0600, never in git). The library renews a session older
-than 2 hours through Librus's `refreshToken`. Librus also drops a session
+than 2 hours through Librus's `refreshToken`, and one quiet for 8 minutes
+before the next request (0.3.32+). Librus also drops a session
 after about 10 minutes without a request; on the next 401 `Librus` renews it
 with `refreshToken` too (0.3.31+) and uses the password only when that
 fails, so a long-running program rarely needs the password again. If you

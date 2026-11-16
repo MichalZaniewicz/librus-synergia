@@ -82,7 +82,10 @@ If any response body in steps 3–4 contains a captcha marker (`captcha`,
   since 0.3.31, the Home Assistant integration since 0.12.49. ❓ How long after the last request a
   refresh still works was not measured. `Me` also reports `Refresh: 900`.
   `async_ensure_session_valid` calls it (`async_refresh_session`) once the
-  session is 2 hours old and falls back to a password login if it fails.
+  session is 2 hours old, and (since 0.3.32) when Synergia hasn't answered
+  for 8 minutes or nothing is known since `import_session` - before the
+  next request, so it isn't rejected first. It falls back to a password
+  login if the refresh fails.
   A refresh only counts when that very answer sets a new `oauth_token`
   (a 200 without one is a failure); after a failure the client doesn't try
   `refreshToken` again for 30 minutes.

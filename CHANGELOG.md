@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.32
+
+### Changed
+- **An idle session is refreshed before the next request, not after it is
+  rejected.** `async_ensure_session_valid` now calls `refreshToken` when
+  Synergia hasn't answered for 8 minutes (`SESSION_IDLE_REFRESH_SECONDS`) or
+  nothing is known since `import_session`. Librus drops a session after
+  about 10 idle minutes, so a program polling every 20 minutes used to start
+  every poll with a request Librus rejected (HTTP 401), then a refresh, then
+  the request again - one request and one 401 fewer per poll now.
+
 ## 0.3.31
 
 ### Changed

@@ -119,6 +119,12 @@ ASSUMED_SESSION_LIFETIME_SECONDS = 20 * 3600
 # long-running client keeps one session instead of logging in daily.
 SESSION_REFRESH_AFTER_SECONDS = 2 * 3600
 SESSION_EXPIRY_SAFETY_MARGIN_SECONDS = 300
+# Librus drops a session after about 10 minutes without a request
+# (CONFIRMED live 2026-11-14) and /refreshToken brings it back. Idle at least
+# this long, `async_ensure_session_valid` refreshes the token first: a client
+# polling every 20 minutes otherwise started every poll with a request
+# Librus rejected (HTTP 401), then a refresh, then the request again.
+SESSION_IDLE_REFRESH_SECONDS = 8 * 60
 # After a failed refresh (an error, or an answer that didn't set a new
 # `oauth_token` cookie), don't try `refreshToken` again for this long.
 REFRESH_RETRY_AFTER_SECONDS = 30 * 60
