@@ -1030,8 +1030,8 @@ def parse_point_grades(
     """`PointGrades` -> point grades, with the maximum, weight and category
     name taken from `categories` (`parse_point_grade_categories`). Fields per
     szkolny-android's `LibrusApiPointGrades.kt` (`Grade`, `GradeValue`,
-    `Category`, `Subject`, `Semester`, `AddDate`, `AddedBy`); not seen
-    live. `GradeValue` is the points; `Grade` the text shown in Synergia.
+    `Category`, `Subject`, `Semester`, `AddDate`, `AddedBy`), confirmed
+    with real data 2026-10-13. `GradeValue` is the points; `Grade` the text shown in Synergia.
     Each item's `Comments` (`{"Id", "Url"}` objects, seen live 2026-11-18)
     is resolved against `comment_text_by_id` (`PointGrades/Comments`)."""
     items = payload.get("Grades")
