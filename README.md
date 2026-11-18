@@ -216,6 +216,12 @@ See [errors and status codes](https://michalzaniewicz.github.io/librus-synergia/
 
 These are real children's school accounts. Cache lookups (`subjects()`, `teachers()` and similar change rarely - `cache_reference_data=True` does it for you), poll with `fetch_changes()` rather than `fetch_all()`, don't poll more than every ~15 minutes, and don't retry in a loop.
 
+## Contributors
+
+Thanks to everyone who sent code to this project:
+
+- <img src="https://github.com/keysim86.png?size=40" width="20" height="20" alt=""> [@keysim86](https://github.com/keysim86): teachers' comments on point grades
+
 ## Supporters
 
 Thanks to everyone who [bought me a coffee](https://buymeacoffee.com/zanula) for the Librus projects:

@@ -88,7 +88,7 @@ unless a field is a `date`. Ids are `int`, except where noted in
 - `GradingSystemData`: plus_value, minus_value, count_zero
 - `TextGradeData`: id, value, subject_id, lesson_id, category_id, category, teacher_id, date, add_date, semester, counts_to_average
 - `DescriptiveGradeData`: id, subject_id, value, skill_id, category_id, add_date, skill, teacher_id, date, semester, comment_ids, comments, source, teacher_lid, requirements
-- `PointGradeData`: id, subject_id, value, points, max_points, category_id, category, weight, counts_to_average, semester, add_date, teacher_id; `percentage`
+- `PointGradeData`: id, subject_id, value, points, max_points, category_id, category, weight, counts_to_average, semester, add_date, teacher_id, comments (teacher's comments, 0.3.33+); `percentage`
 - `BehaviourGradeData`: id, value, short_name, semester, category_id, teacher_id, add_date, text, comments, grade_id; `display`, `name`
 - `NoteData`: id, text, category_id, teacher_id, date, positive; `sentiment` ("positive"/"negative"/"neutral")
 - `AttendanceData`: id (`int` or `str`), lesson_id, lesson_no, date, semester, type_id

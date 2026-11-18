@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.33
 
 ### Added
 - **Teachers' comments on point grades.** `PointGradeData.comments` holds the
