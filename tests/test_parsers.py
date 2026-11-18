@@ -437,6 +437,33 @@ def test_parse_point_grades_resolves_categories() -> None:
     assert third.counts_to_average is False
 
 
+def test_parse_point_grades_resolves_comments() -> None:
+    # Live shape (2026-11-18): {"Id", "Url"} objects into PointGrades/Comments.
+    payload = {
+        "Grades": [
+            {
+                "Id": 21,
+                "Grade": "10.00",
+                "GradeValue": 10,
+                "Comments": [
+                    {"Id": 501, "Url": "https://api.librus.pl/2.0/PointGrades/Comments/501"}
+                ],
+            },
+            {"Id": 22, "Grade": "5.00"},
+        ]
+    }
+    lookup = parsers.parse_comment_text_map(
+        {"Comments": [{"Id": 501, "Text": "Zadanie 3 bez wniosków", "Grade": {"Id": 21}}]}
+    )
+
+    first, second = parsers.parse_point_grades(payload, None, lookup)
+
+    assert first.comments == ["Zadanie 3 bez wniosków"]
+    assert second.comments == []
+    # Without the lookup the grade still parses, just without the text.
+    assert parsers.parse_point_grades(payload)[0].comments == []
+
+
 def test_point_grades_percentage_is_weighted() -> None:
     grades = parsers.parse_point_grades(
         POINT_GRADES, parsers.parse_point_grade_categories(POINT_CATEGORIES)

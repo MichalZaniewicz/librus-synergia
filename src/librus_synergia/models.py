@@ -665,6 +665,8 @@ class PointGradeData:
     semester: int | None
     add_date: str | None
     teacher_id: int | None = None
+    # The teacher's comments, resolved to text (`PointGrades/Comments`).
+    comments: list[str] = field(default_factory=list)
 
     @property
     def percentage(self) -> float | None:
