@@ -265,6 +265,10 @@ ENDPOINT_HOMEWORK_ASSIGNMENT_CATEGORIES = "HomeWorkAssignments/Categories"
 # whether they count towards the average (szkolny-android's
 # LibrusApiPointGradeCategories.kt).
 ENDPOINT_POINT_GRADE_CATEGORIES = "PointGrades/Categories"
+# Teachers' comments on point grades, CONFIRMED live 2026-11-18 - same
+# {"Comments": [{"Id", "Text", "AddedBy", "Grade"}]} shape as Grades/Comments;
+# each PointGrades item's `Comments` is a list of {"Id", "Url"} objects into it.
+ENDPOINT_POINT_GRADE_COMMENTS = "PointGrades/Comments"
 ENDPOINT_DESCRIPTIVE_GRADES = "DescriptiveGrades"
 # The school's grade scale settings: what "+" and "-" add or take away, and
 # whether a 0 counts. CONFIRMED live 2026-10-09.

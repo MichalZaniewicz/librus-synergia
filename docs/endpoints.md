@@ -61,7 +61,7 @@ poll downloads the full list.
 | `SpecialAchievement` | ✅ 404, but it lists `SpecialAchievement/Types`: 200 `{"data": [{"id", "name"}]}` - the school's categories of special achievements (sports competitions, volunteering, subject olympiads, ...). `.../Student`, `.../Students`, `.../Achievements` are 404, so the student's own achievements weren't found in the API. |
 | `Calendars/Stats` | ✅ 200 `{"Stats": [{"Id", "MinDate", "MaxDate"}]}` - the class calendar's id and the school year's first and last day. `Calendars/<that Id>` lists ids (no content) of `SchoolFreeDays`, `TeacherFreeDays`, `HomeWorks`, ... for the whole year. |
 | `Calendars/Substitutions` | ✅ 200 - see [Timetable](#timetable). |
-| `PointGrades/Comments`, `DescriptiveGrades/Text/Categories` | ✅ 200, empty (`Comments` / `Categories`) on the tested account. |
+| `DescriptiveGrades/Text/Categories` | ✅ 200, empty (`Categories`) on the tested account. |
 | `PlannedLessons/ThematicTeaching` | ✅ 200 `{"Realizations": []}` |
 | `FileTransferRestrictions` | ✅ 200 `{"Restrictions": {"upload", "upload_3g"}}` |
 | `Regulations` | ✅ 200 `{"Data": [{"module", "acceptanceDate", "url"}]}` - when the terms of use were accepted |
@@ -105,6 +105,7 @@ poll downloads the full list.
 | `DescriptiveGrades/Text` | - | ✅ 404 `NotFound`, although `DescriptiveGrades` lists it in `Resources`. |
 | `PointGrades` | `Grades` | ✅ Reachable. ✅ Seen with real data on a user's account (a school grading some subjects in points, reported 2026-10-13): points, maximum and percentage come out right (e.g. 9.5/10 → 95 %). Fields: `Grade` (the text shown), `GradeValue` (the points), `Category.Id`, `Subject.Id`, `Semester`, `AddDate`, `AddedBy.Id`. The maximum lives on the category. Parsed by `parse_point_grades`; `point_grades_percentage` gives the weighted earned/possible percentage. `Librus.point_grades()` doesn't ask at all when `Units` says `PointGradesEnabled: false`, and fetches the categories only when there are grades. |
 | `PointGrades/Categories` | `Categories` | ✅ `Name`, `Weight`, `CountToTheAverage`, `ValueFrom`, `ValueTo` (the maximum points) - the maximum shows correctly on a user's account. |
+| `PointGrades/Comments` | `Comments` | ✅ The teacher's comments on point grades (seen live 2026-11-18, 21 comments on a real account): `Id`, `Text`, `AddedBy.Id`, `Grade.Id` - same shape as `Grades/Comments`. `PointGrades[].Comments` is a list of `{"Id", "Url"}` objects into this endpoint. `Librus.point_grades()` fetches it only when a grade has a comment id and keeps it like `Grades/Comments`. |
 | `TextGrades` | — | ✅ Reachable, empty on tested accounts. |
 | `BaseTextGrades` | `Grades` | ✅ **Text grades** that `Grades` doesn't contain (one real entry, 2026-09-18): `Grade` (free text; ✅ can contain the teacher's line breaks and indentation, e.g. `"...sesja I\n      80%"` - `parse_text_grades` collapses the whitespace), `Subject.Id`, `Lesson.Id`, `Category.Id` (into `TextGrades/Categories`), `AddedBy.Id`, `Student.Id`, `Date`, `AddDate`, `Semester`, `ShowInGradesView`. szkolny-android reads its "descriptive grades" from here. |
 | `TextGrades/Categories` | `Categories` | ✅ `Name`, `Short`, `Color.Id` (into `Colors`), `Weight`, `CountToTheAverage`, `Standard`, `IsReadOnly`, `BlockAnyGrades`, `ObligationToPerform` (71 on a tested school). |

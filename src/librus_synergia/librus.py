@@ -1100,7 +1100,8 @@ class Librus:
 
     async def point_grades(self) -> list[PointGradeData]:
         """Point grades (schools grading in points or percent), with each
-        category's maximum and weight. Average them with
+        category's maximum and weight and the teacher's comments (fetched and
+        kept like `grades()`'s, only when a grade has one). Average them with
         `parsers.point_grades_percentage`. Empty without a request when the
         school has point grades switched off (`point_grades_enabled()`), and
         when Librus refuses the module (remembered for a day)."""
@@ -1121,8 +1122,17 @@ class Librus:
                 ),
                 no_categories,
             )
+            comments: dict[int, str] = {}
+            ids = _comment_ids(grades.get("Grades"))
+            if ids:
+                comments = await self._id_lookup(
+                    "PointGrades/Comments",
+                    self.client.async_get_point_grade_comments,
+                    parsers.parse_comment_text_map,
+                    ids,
+                )
             return parsers.parse_point_grades(
-                grades, parsers.parse_point_grade_categories(categories)
+                grades, parsers.parse_point_grade_categories(categories), comments
             )
 
         return await self._module("PointGrades", load, [])

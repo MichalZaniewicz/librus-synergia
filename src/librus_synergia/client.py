@@ -63,6 +63,7 @@ from .const import (
     ENDPOINT_PARTIAL_GRADES,
     ENDPOINT_PLAN_CHANGES,
     ENDPOINT_POINT_GRADE_CATEGORIES,
+    ENDPOINT_POINT_GRADE_COMMENTS,
     ENDPOINT_POINT_GRADES,
     ENDPOINT_REALIZATIONS,
     ENDPOINT_SCHOOL_FILES,
@@ -885,6 +886,12 @@ class LibrusApiClient:
         """Point-grade categories: maximum points, weight, counts to the
         average. See `parse_point_grade_categories`."""
         return await self._async_request(ENDPOINT_POINT_GRADE_CATEGORIES)
+
+    async def async_get_point_grade_comments(self) -> dict[str, Any]:
+        """Teachers' comments on point grades. See const.py's
+        ENDPOINT_POINT_GRADE_COMMENTS; `parsers.parse_point_grades` resolves
+        each grade's comment ids against it."""
+        return await self._async_request(ENDPOINT_POINT_GRADE_COMMENTS)
 
     async def async_get_descriptive_grades(self) -> dict[str, Any]:
         """Descriptive grades, for schools with Units'

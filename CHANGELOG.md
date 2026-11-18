@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Teachers' comments on point grades.** `PointGradeData.comments` holds the
+  comments resolved to text from the new `PointGrades/Comments` endpoint
+  (`LibrusApiClient.async_get_point_grade_comments`, confirmed live: the same
+  `{"Comments": [{"Id", "Text", "AddedBy", "Grade"}]}` shape as
+  `Grades/Comments`). `parse_point_grades` takes an optional
+  `comment_text_by_id`; `Librus.point_grades()` fetches the comments only when a
+  grade has one and keeps them like `grades()` does.
+
 ## 0.3.32
 
 ### Changed

@@ -1023,13 +1023,17 @@ def parse_point_grade_categories(payload: dict[str, Any]) -> dict[int, PointGrad
 
 
 def parse_point_grades(
-    payload: dict[str, Any], categories: dict[int, PointGradeCategoryData] | None = None
+    payload: dict[str, Any],
+    categories: dict[int, PointGradeCategoryData] | None = None,
+    comment_text_by_id: dict[int, str] | None = None,
 ) -> list[PointGradeData]:
     """`PointGrades` -> point grades, with the maximum, weight and category
     name taken from `categories` (`parse_point_grade_categories`). Fields per
     szkolny-android's `LibrusApiPointGrades.kt` (`Grade`, `GradeValue`,
     `Category`, `Subject`, `Semester`, `AddDate`, `AddedBy`); not seen
-    live. `GradeValue` is the points; `Grade` the text shown in Synergia."""
+    live. `GradeValue` is the points; `Grade` the text shown in Synergia.
+    Each item's `Comments` (`{"Id", "Url"}` objects, seen live 2026-11-18)
+    is resolved against `comment_text_by_id` (`PointGrades/Comments`)."""
     items = payload.get("Grades")
     if not isinstance(items, list):
         return []
@@ -1061,6 +1065,7 @@ def parse_point_grades(
                 semester=as_int(item.get("Semester")),
                 add_date=item.get("AddDate"),
                 teacher_id=as_int(_obj(item.get("AddedBy")).get("Id")),
+                comments=resolve_comment_ids(item.get("Comments"), comment_text_by_id or {}),
             )
         )
     return grades

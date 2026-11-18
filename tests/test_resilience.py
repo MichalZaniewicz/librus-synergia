@@ -484,6 +484,36 @@ async def test_point_grade_categories_are_kept_with_cache_reference_data() -> No
             assert mocked.get_calls[_url("PointGrades/Categories")] == 1
 
 
+async def test_point_grade_comments_are_fetched_only_when_referenced(clock: _Clock) -> None:
+    async with aiohttp.ClientSession() as session:
+        with MockedSession(session) as mocked:
+            mock_successful_login(session, mocked)
+            mocked.get(_url("Units"), json_data={})
+            mocked.get(_url("PointGrades/Categories"), json_data={"Categories": []})
+            mocked.get(_url("PointGrades"), json_data={"Grades": [{"Id": 1, "Grade": "8"}]})
+            mocked.get(
+                _url("PointGrades/Comments"),
+                json_data={"Comments": [{"Id": 7, "Text": "Brak opisu", "Grade": {"Id": 1}}]},
+            )
+            librus = Librus("1234567u", "pw", session=session)
+
+            (grade,) = await librus.point_grades()
+            assert grade.comments == []
+            assert _url("PointGrades/Comments") not in mocked.get_calls
+
+            mocked.get(
+                _url("PointGrades"),
+                json_data={
+                    "Grades": [{"Id": 1, "Grade": "8", "Comments": [{"Id": 7, "Url": "x"}]}]
+                },
+            )
+            (grade,) = await librus.point_grades()
+            await librus.point_grades()
+            assert grade.comments == ["Brak opisu"]
+            # Kept like the 1-6 grades' comments: one request for a known id.
+            assert mocked.get_calls[_url("PointGrades/Comments")] == 1
+
+
 async def test_cli_watch_keeps_reference_data(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, Any] = {}
 
